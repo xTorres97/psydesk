@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Lora, DM_Sans } from "next/font/google";
+import { PreferencesProvider } from "@/context/PreferencesContext";
 import "./globals.css";
 
 const lora = Lora({
@@ -27,7 +28,9 @@ export default function RootLayout({
   return (
     <html lang="es" suppressHydrationWarning>
       <body className={`${lora.variable} ${dmSans.variable} antialiased`}>
-        {children}
+        <PreferencesProvider>
+          {children}
+        </PreferencesProvider>
       </body>
     </html>
   );

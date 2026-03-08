@@ -30,7 +30,7 @@ export function SessionList() {
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
       {/* SESSIONS */}
-      <div className="card" style={{ padding: "20px 24px" }}>
+      <div className="card" style={{ padding: "20px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <h2 className="sec-t" style={{ margin: 0 }}>Sesiones</h2>
           <div style={{ display: "flex", gap: 6 }}>
@@ -41,48 +41,45 @@ export function SessionList() {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {PATIENTS.filter((p) => p.next === dayFilter).map((p) => (
-            <div key={p.id} className="p-row">
+            <div key={p.id} className="p-row" style={{ flexWrap: "wrap", gap: 8 }}>
               <div className="avatar" style={{ background: `${p.color}18`, color: p.color }}>{p.initials}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{p.name}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{p.name}</span>
                   <span className="tag" style={{ background: `${p.color}14`, color: p.color }}>{p.tag}</span>
                   {p.status === "new" && <span className="tag" style={{ background: "var(--accent-bg)", color: "var(--accent)" }}>Nueva</span>}
                 </div>
-                <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Sesión #{p.sessions} · {p.age} años</div>
-              </div>
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{p.session.split(" ")[1]}</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "flex-end", marginTop: 3 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: p.status === "confirmed" ? "var(--green)" : p.status === "pending" ? "var(--amber)" : "var(--blue)" }} />
-                  <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 11, color: "var(--text-muted)" }}>
+                <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                  Sesión #{p.sessions} · {p.session.split(" ")[1]}
+                  <span style={{ marginLeft: 6, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: p.status === "confirmed" ? "var(--green)" : p.status === "pending" ? "var(--amber)" : "var(--blue)", display: "inline-block" }} />
                     {p.status === "confirmed" ? "Confirmada" : p.status === "pending" ? "Pendiente" : "Primera vez"}
                   </span>
                 </div>
               </div>
-              <button className="btn-g" style={{ marginLeft: 8, padding: "6px 12px", fontSize: 12 }}>Ver</button>
+              <button className="btn-g" style={{ padding: "5px 10px", fontSize: 11, alignSelf: "center" }}>Ver</button>
             </div>
           ))}
         </div>
       </div>
 
       {/* WEEKLY STRIP */}
-      <div className="card" style={{ padding: "20px 24px" }}>
+      <div className="card" style={{ padding: "20px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <h2 className="sec-t" style={{ margin: 0 }}>Semana en curso</h2>
-          <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 12, color: "var(--text-muted)" }}>Ene 5 – 11</span>
+          <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 12, color: "var(--text-muted)" }}>Ene 5–11</span>
         </div>
         <div style={{ display: "flex", gap: 4, marginBottom: 18 }}>
           {WEEK_DAYS.map((d, i) => {
             const evs = CALENDAR_EVENTS[i] ?? [];
             const isToday = i === TODAY_IDX;
             return (
-              <div key={i} className={`cal-d${isToday ? " today" : ""}`}>
-                <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 11, fontWeight: 500, color: isToday ? "#FAF7F2" : "var(--text-muted)" }}>{d}</span>
-                <span style={{ fontFamily: "var(--font-lora)", fontSize: 16, fontWeight: 600, color: isToday ? "#FAF7F2" : "var(--text-primary)" }}>{5 + i}</span>
+              <div key={i} className={`cal-d${isToday ? " today" : ""}`} style={{ flex: 1 }}>
+                <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 10, fontWeight: 500, color: isToday ? "#FAF7F2" : "var(--text-muted)" }}>{d}</span>
+                <span style={{ fontFamily: "var(--font-lora)", fontSize: 14, fontWeight: 600, color: isToday ? "#FAF7F2" : "var(--text-primary)" }}>{5 + i}</span>
                 <div style={{ display: "flex", gap: 2, minHeight: 5 }}>
                   {evs.slice(0, 3).map((e, j) => (
-                    <span key={j} style={{ width: 5, height: 5, borderRadius: "50%", background: isToday ? "rgba(250,247,242,.6)" : e.color }} />
+                    <span key={j} style={{ width: 4, height: 4, borderRadius: "50%", background: isToday ? "rgba(250,247,242,.6)" : e.color }} />
                   ))}
                 </div>
               </div>

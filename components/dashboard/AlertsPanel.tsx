@@ -1,9 +1,9 @@
 "use client";
 
 const ALERTS = [
-  { icon: "📋", text: "PHQ-9 pendiente de revisar — María González",    type: "amber" as const },
-  { icon: "🔔", text: "Carlos Mendoza confirmó su cita de las 11:30",  type: "green" as const },
-  { icon: "📝", text: "Nota de sesión sin completar — Ana Reyes (ayer)", type: "red" as const },
+  { icon: "📋", text: "PHQ-9 pendiente de revisar — María González",     type: "amber" as const },
+  { icon: "🔔", text: "Carlos Mendoza confirmó su cita de las 11:30",   type: "green" as const },
+  { icon: "📝", text: "Nota de sesión sin completar — Ana Reyes (ayer)", type: "red"   as const },
 ];
 
 const QUICK_ACTIONS = [
@@ -23,13 +23,12 @@ export function AlertsPanel() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-      {/* ALERTS */}
-      <div className="card" style={{ padding: "20px 20px" }}>
+      <div className="card" style={{ padding: "20px 16px" }}>
         <h2 className="sec-t">Avisos</h2>
         {ALERTS.map((a, i) => (
           <div key={i} style={{
             display: "flex", alignItems: "flex-start", gap: 10,
-            padding: "10px 14px", borderRadius: 10, marginBottom: 6,
+            padding: "10px 12px", borderRadius: 10, marginBottom: 6,
             fontFamily: "var(--font-dm-sans)", fontSize: 13,
             background: a.type === "amber" ? "var(--amber-bg)" : a.type === "green" ? "var(--green-bg)" : "var(--red-bg)",
             border: `1px solid ${a.type === "amber" ? "var(--amber)" : a.type === "green" ? "var(--green)" : "var(--red)"}22`,
@@ -41,8 +40,7 @@ export function AlertsPanel() {
         <button className="btn-g" style={{ width: "100%", marginTop: 8 }}>Ver todos los avisos</button>
       </div>
 
-      {/* QUICK ACTIONS */}
-      <div className="card" style={{ padding: "20px 20px" }}>
+      <div className="card" style={{ padding: "20px 16px" }}>
         <h2 className="sec-t">Acciones rápidas</h2>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           {QUICK_ACTIONS.map((a, i) => (
@@ -58,8 +56,7 @@ export function AlertsPanel() {
         </div>
       </div>
 
-      {/* PROGRESS */}
-      <div className="card" style={{ padding: "20px 20px" }}>
+      <div className="card" style={{ padding: "20px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <h2 className="sec-t" style={{ margin: 0 }}>Evolución reciente</h2>
           <button className="btn-g" style={{ padding: "4px 10px", fontSize: 11 }}>Ver más</button>

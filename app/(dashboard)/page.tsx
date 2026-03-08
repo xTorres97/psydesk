@@ -23,15 +23,21 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {/* Stat cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
-        {STATS.map((s) => (
-          <StatCard key={s.label} {...s} />
-        ))}
+      {/* Stat cards — 4 cols desktop, 2 cols mobile */}
+      <style>{`
+        .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; }
+        .main-grid  { display: grid; grid-template-columns: 1fr 340px; gap: 20px; }
+        @media (max-width: 768px) {
+          .stats-grid { grid-template-columns: repeat(2,1fr); gap: 10px; }
+          .main-grid  { grid-template-columns: 1fr; }
+        }
+      `}</style>
+
+      <div className="stats-grid">
+        {STATS.map((s) => <StatCard key={s.label} {...s} />)}
       </div>
 
-      {/* Grid principal */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
+      <div className="main-grid">
         <SessionList />
         <AlertsPanel />
       </div>
