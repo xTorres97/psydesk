@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Lora, DM_Sans } from "next/font/google";
 import { PreferencesProvider } from "@/context/PreferencesContext";
 import "./globals.css";
+import { AiFloatingButton } from "@/components/ai/AiPanel";
 
 const lora = Lora({
   subsets: ["latin"],
@@ -31,6 +32,7 @@ export default function RootLayout({
         <PreferencesProvider>
           {children}
         </PreferencesProvider>
+        <AiFloatingButton />
       </body>
     </html>
   );

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSidebarStore } from "@/stores/useSidebarStore";
+import { Sparkles } from "lucide-react";
 
 const NAV_ITEMS = [
   { icon: "⊞", label: "Dashboard",   href: "/"            },
@@ -11,6 +12,7 @@ const NAV_ITEMS = [
   { icon: "📂", label: "Expedientes", href: "/expedientes" },
   { icon: "🧪", label: "Tests",       href: "/tests"       },
   { icon: "📊", label: "Reportes",    href: "/reportes"    },
+  { href:"/asistente", icon:<Sparkles size={18}/>, label:"Asistente IA", badge:"✦" }
 ];
 
 export function Sidebar() {
