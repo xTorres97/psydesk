@@ -17,7 +17,7 @@ const PACIENTES_DEMO = [
   { nombre:"Pedro Morales",   edad:38, diagnostico:"Pareja y familia",          sesiones:4,  proximaCita:"—",            estado:"Archivado",    notas:"Proceso de divorcio. Pausó terapia por cambio de ciudad." },
 ];
 
-const SYSTEM_PROMPT = `Eres PsyDesk AI, el asistente inteligente integrado en PsyDesk, una plataforma de gestión clínica para psicólogos independientes.
+const SYSTEM_PROMPT = `Eres PsyDesk  AI, el asistente inteligente integrado en PsyDesk, una plataforma de gestión clínica para psicólogos independientes.
 
 Estás asistiendo a la Dra. Laura Martínez, psicóloga clínica con especialidad en Terapia Cognitivo-Conductual.
 
