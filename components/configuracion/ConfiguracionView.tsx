@@ -160,9 +160,7 @@ function AvatarModal({
 export function ConfiguracionView() {
   const [section, setSection]       = useState<ConfigSection>("perfil");
   const [toast, setToast]           = useState<{ msg: string; ok: boolean } | null>(null);
-  const [twoFactor, setTwoFactor]   = useState(true);
-  const [autoLogout, setAutoLogout] = useState(true);
-  const [sessionLog, setSessionLog] = useState(true);
+
   const [savingProfile, setSavingProfile]       = useState(false);
   const [savingAppearance, setSavingAppearance] = useState(false);
   const [uploadingAvatar, setUploadingAvatar]   = useState(false);
@@ -179,6 +177,25 @@ export function ConfiguracionView() {
   const [newPass,     setNewPass]     = useState("");
   const [confirmPass, setConfirmPass] = useState("");
   const [passLoading, setPassLoading] = useState(false);
+
+  // ── Seguridad real ────────────────────────────────────────────────────────
+  type SessionLog = {
+    id: string;
+    device: string | null;
+    browser: string | null;
+    os: string | null;
+    location: string | null;
+    logged_in_at: string;
+    is_current: boolean;
+  };
+  const [sessionLogs,     setSessionLogs]     = useState<SessionLog[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [autoLogoutMin,   setAutoLogoutMin]   = useState(30); // minutos
+  const [secPrefs, setSecPrefs] = useState({
+    auto_logout: true,
+    session_log: true,
+  });
+  const [savingSec, setSavingSec] = useState(false);
 
   type IntegKey = "calendar" | "meet" | "drive";
   const [integrations, setIntegrations] = useState<Record<IntegKey, boolean>>({
@@ -210,6 +227,75 @@ export function ConfiguracionView() {
     license_number: profile?.license_number ?? "",
     clinic_name:    profile?.clinic_name    ?? "",
   });
+
+  // ── Cargar preferencias de seguridad desde Supabase ──────────────────────
+  useEffect(() => {
+    if (!profile?.id) return;
+    supabase.from("profiles").select("preferences").eq("id", profile.id).single()
+      .then(({ data }) => {
+        if (data?.preferences?.security) {
+          setSecPrefs(p => ({ ...p, ...data.preferences.security }));
+          setAutoLogoutMin(data.preferences.security.auto_logout_min ?? 30);
+        }
+      });
+  }, [profile?.id]);
+
+  // ── Registrar sesión actual al cargar ─────────────────────────────────────
+  useEffect(() => {
+    if (!profile?.id) return;
+    const ua      = navigator.userAgent;
+    const browser = ua.includes("Chrome") ? "Chrome" : ua.includes("Firefox") ? "Firefox" : ua.includes("Safari") ? "Safari" : "Otro";
+    const os      = ua.includes("Windows") ? "Windows" : ua.includes("Mac") ? "macOS" : ua.includes("Linux") ? "Linux" : ua.includes("Android") ? "Android" : ua.includes("iPhone") ? "iOS" : "Otro";
+    const device  = /Mobi|Android/i.test(ua) ? "Móvil" : "Escritorio";
+
+    // Marcar sesiones previas como no actuales y registrar la actual
+    supabase.from("session_logs")
+      .update({ is_current: false })
+      .eq("profile_id", profile.id)
+      .eq("is_current", true)
+      .then(() => {
+        supabase.from("session_logs").insert({
+          profile_id:   profile.id,
+          device, browser, os,
+          location:     "—",
+          is_current:   true,
+          logged_in_at: new Date().toISOString(),
+        }).then(() => loadSessions());
+      });
+  }, [profile?.id]);
+
+  const loadSessions = async () => {
+    if (!profile?.id) return;
+    setLoadingSessions(true);
+    const { data } = await supabase
+      .from("session_logs")
+      .select("*")
+      .eq("profile_id", profile.id)
+      .order("logged_in_at", { ascending: false })
+      .limit(10);
+    setSessionLogs(data ?? []);
+    setLoadingSessions(false);
+  };
+
+  useEffect(() => {
+    if (section === "seguridad" && profile?.id) loadSessions();
+  }, [section, profile?.id]);
+
+  const handleCloseSession = async (id: string) => {
+    await supabase.from("session_logs").delete().eq("id", id);
+    setSessionLogs(p => p.filter(s => s.id !== id));
+    showToast("✓ Sesión cerrada");
+  };
+
+  const handleSaveSecPrefs = async () => {
+    if (!profile?.id) return;
+    setSavingSec(true);
+    const { data: existing } = await supabase.from("profiles").select("preferences").eq("id", profile.id).single();
+    const prefs = { ...(existing?.preferences ?? {}), security: { ...secPrefs, auto_logout_min: autoLogoutMin } };
+    await supabase.from("profiles").update({ preferences: prefs }).eq("id", profile.id);
+    setSavingSec(false);
+    showToast("✓ Preferencias de seguridad guardadas");
+  };
 
   // ── Cargar historial de avatares ─────────────────────────────────────────
   useEffect(() => {
@@ -719,40 +805,134 @@ export function ConfiguracionView() {
                   {passLoading ? "Actualizando..." : "Actualizar contraseña"}
                 </button>
               </CardSection>
+
               <CardSection>
-                <SecTitle>Opciones de seguridad</SecTitle>
-                {[
-                  { label:"Autenticación de dos factores (2FA)", desc:"Agrega una capa extra de seguridad al iniciar sesión", state:twoFactor, set:setTwoFactor },
-                  { label:"Cierre de sesión automático",         desc:"Cerrar sesión tras 30 minutos de inactividad",         state:autoLogout, set:setAutoLogout },
-                  { label:"Registro de accesos",                 desc:"Guardar log de todos los inicios de sesión",           state:sessionLog, set:setSessionLog },
-                ].map((o,i) => (
-                  <Row key={i}>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, color:"var(--text-primary)" }}>{o.label}</div>
-                      <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)" }}>{o.desc}</div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                  <div style={{ fontFamily:"var(--font-lora)", fontSize:15, fontWeight:600, color:"var(--text-primary)" }}>Opciones de seguridad</div>
+                  <button className="btn-p" style={{ fontSize:12, padding:"6px 14px", opacity:savingSec?0.7:1 }} onClick={handleSaveSecPrefs} disabled={savingSec}>
+                    {savingSec ? "Guardando..." : "Guardar"}
+                  </button>
+                </div>
+
+                {/* 2FA — Próximamente */}
+                <Row>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, color:"var(--text-muted)" }}>Autenticación de dos factores (2FA)</div>
+                      <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:10, color:"var(--text-muted)", background:"var(--surface)", padding:"2px 8px", borderRadius:20, border:"1px solid var(--border)", whiteSpace:"nowrap" }}>Próximamente</span>
                     </div>
-                    <Toggle checked={o.state} onChange={() => o.set(!o.state)} color="var(--green)" />
-                  </Row>
-                ))}
+                    <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)" }}>Agrega una capa extra de seguridad al iniciar sesión</div>
+                  </div>
+                  <Toggle checked={false} onChange={() => showToast("2FA estará disponible próximamente.", false)} color="var(--green)" />
+                </Row>
+
+                {/* Cierre automático — funcional */}
+                <Row>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, color:"var(--text-primary)" }}>Cierre de sesión automático</div>
+                    <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)" }}>Cerrar sesión tras inactividad</div>
+                  </div>
+                  <Toggle checked={secPrefs.auto_logout} onChange={() => setSecPrefs(p => ({ ...p, auto_logout: !p.auto_logout }))} color="var(--green)" />
+                </Row>
+                {secPrefs.auto_logout && (
+                  <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:"var(--surface)", borderRadius:10, marginTop:8, marginBottom:4 }}>
+                    <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:12, color:"var(--text-secondary)", flex:1 }}>Tiempo de inactividad</span>
+                    <select value={autoLogoutMin} onChange={e => setAutoLogoutMin(Number(e.target.value))}
+                      style={{ ...inputStyle, width:"auto", padding:"6px 10px" }}>
+                      <option value={15}>15 minutos</option>
+                      <option value={30}>30 minutos</option>
+                      <option value={60}>1 hora</option>
+                      <option value={120}>2 horas</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Registro de accesos — funcional */}
+                <Row>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, color:"var(--text-primary)" }}>Registro de accesos</div>
+                    <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)" }}>Guardar log de todos los inicios de sesión</div>
+                  </div>
+                  <Toggle checked={secPrefs.session_log} onChange={() => setSecPrefs(p => ({ ...p, session_log: !p.session_log }))} color="var(--green)" />
+                </Row>
               </CardSection>
+
+              {/* Sesiones activas — tiempo real */}
               <CardSection>
-                <SecTitle>Sesiones activas</SecTitle>
-                {[
-                  { device:"MacBook Pro · Chrome", loc:"Ciudad de México", time:"Ahora mismo",  current:true  },
-                  { device:"iPhone 14 · Safari",   loc:"Ciudad de México", time:"Hace 2 horas", current:false },
-                ].map((s,i) => (
-                  <Row key={i}>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:7, flexWrap:"wrap" }}>
-                        <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-primary)", fontWeight:500 }}>{s.device}</span>
-                        {s.current && <span style={{ background:"var(--green-bg)", color:"var(--green)", padding:"1px 7px", borderRadius:10, fontSize:10, fontFamily:"var(--font-dm-sans)", fontWeight:600 }}>Actual</span>}
-                      </div>
-                      <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)" }}>{s.loc} · {s.time}</div>
-                    </div>
-                    {!s.current && <button className="btn-g" style={{ fontSize:11, padding:"5px 10px", color:"var(--red)", borderColor:"var(--red)" }}>Cerrar</button>}
-                  </Row>
-                ))}
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                  <div style={{ fontFamily:"var(--font-lora)", fontSize:15, fontWeight:600, color:"var(--text-primary)" }}>Sesiones activas</div>
+                  <button className="btn-g" style={{ fontSize:11, padding:"5px 10px" }} onClick={loadSessions} disabled={loadingSessions}>
+                    {loadingSessions ? "..." : "↻ Actualizar"}
+                  </button>
+                </div>
+                {loadingSessions ? (
+                  <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-muted)", padding:"12px 0" }}>Cargando sesiones...</div>
+                ) : sessionLogs.length === 0 ? (
+                  <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-muted)", padding:"12px 0" }}>No hay sesiones registradas.</div>
+                ) : (
+                  sessionLogs.map((s) => {
+                    const when = new Date(s.logged_in_at);
+                    const diffMin = Math.round((Date.now() - when.getTime()) / 60000);
+                    const timeLabel = diffMin < 2 ? "Ahora mismo" : diffMin < 60 ? `Hace ${diffMin} min` : diffMin < 1440 ? `Hace ${Math.round(diffMin/60)}h` : `Hace ${Math.round(diffMin/1440)} días`;
+                    const icon = s.device === "Móvil" ? "📱" : "💻";
+                    return (
+                      <Row key={s.id}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:7, flexWrap:"wrap" }}>
+                            <span style={{ fontSize:15 }}>{icon}</span>
+                            <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-primary)", fontWeight:500 }}>
+                              {s.device ?? "Dispositivo"} · {s.browser ?? "Navegador"}
+                            </span>
+                            {s.is_current && (
+                              <span style={{ background:"var(--green-bg)", color:"var(--green)", padding:"1px 7px", borderRadius:10, fontSize:10, fontFamily:"var(--font-dm-sans)", fontWeight:600 }}>Actual</span>
+                            )}
+                          </div>
+                          <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)", marginLeft:22 }}>
+                            {s.os ?? ""}{s.os && " · "}{timeLabel}
+                          </div>
+                        </div>
+                        {!s.is_current && (
+                          <button className="btn-g" style={{ fontSize:11, padding:"5px 10px", color:"var(--red)", borderColor:"var(--red)" }}
+                            onClick={() => handleCloseSession(s.id)}>
+                            Cerrar
+                          </button>
+                        )}
+                      </Row>
+                    );
+                  })
+                )}
               </CardSection>
+
+              {/* Registro de accesos recientes */}
+              {secPrefs.session_log && (
+                <CardSection>
+                  <SecTitle>Historial de accesos recientes</SecTitle>
+                  {sessionLogs.length === 0 ? (
+                    <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-muted)" }}>Sin historial aún.</div>
+                  ) : (
+                    sessionLogs.slice(0, 8).map((s) => {
+                      const when    = new Date(s.logged_in_at);
+                      const dateStr = when.toLocaleDateString("es-MX", { day:"2-digit", month:"short", year:"numeric" });
+                      const timeStr = when.toLocaleTimeString("es-MX", { hour:"2-digit", minute:"2-digit" });
+                      const icon    = s.device === "Móvil" ? "📱" : "💻";
+                      return (
+                        <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:"1px solid var(--border-light)" }}>
+                          <span style={{ fontSize:16, flexShrink:0 }}>{icon}</span>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:12, color:"var(--text-primary)", fontWeight:500 }}>
+                              {s.browser ?? "Navegador"} en {s.os ?? "—"}
+                            </div>
+                            <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)" }}>{dateStr} · {timeStr}</div>
+                          </div>
+                          {s.is_current && (
+                            <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:10, color:"var(--green)", background:"var(--green-bg)", padding:"2px 8px", borderRadius:10, fontWeight:600, whiteSpace:"nowrap" }}>Sesión actual</span>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </CardSection>
+              )}
             </>
           )}
 
