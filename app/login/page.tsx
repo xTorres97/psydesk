@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function LoginPage() {
+// ── Componente interno que usa useSearchParams ────────────────────────────────
+function LoginForm() {
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [loading,  setLoading]  = useState(false);
@@ -65,7 +66,6 @@ export default function LoginPage() {
           <h2 style={{ fontFamily:"var(--font-lora)", fontSize:18, fontWeight:600, color:"var(--text-primary)", marginBottom:4 }}>Iniciar sesión</h2>
           <p style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-muted)", marginBottom:24 }}>Bienvenido/a de vuelta</p>
 
-          {/* Mensajes */}
           {message && (
             <div style={{ padding:"10px 14px", borderRadius:10, background:"var(--green-bg)", border:"1px solid var(--green)", color:"var(--green)", fontFamily:"var(--font-dm-sans)", fontSize:13, marginBottom:16 }}>
               {message}
@@ -135,5 +135,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+// ── Page export con Suspense ──────────────────────────────────────────────────
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

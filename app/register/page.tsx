@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const [step,      setStep]      = useState<"form"|"success">("form");
   const [fullName,  setFullName]  = useState("");
   const [email,     setEmail]     = useState("");
@@ -38,7 +38,6 @@ export default function RegisterPage() {
         : error.message);
       setLoading(false);
     } else {
-      // Guardar sexo en profiles si el usuario fue creado
       if (data.user) {
         await supabase
           .from("profiles")
@@ -142,9 +141,7 @@ export default function RegisterPage() {
             </label>
             <div style={{ display:"flex", gap:8 }}>
               {(["masculino", "femenino"] as const).map(opcion => (
-                <button
-                  key={opcion}
-                  onClick={() => setSexo(opcion)}
+                <button key={opcion} onClick={() => setSexo(opcion)}
                   style={{
                     flex:1, padding:"10px 14px", borderRadius:10, cursor:"pointer",
                     fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500,
@@ -230,5 +227,13 @@ export default function RegisterPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={null}>
+      <RegisterForm />
+    </Suspense>
   );
 }
