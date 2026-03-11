@@ -22,6 +22,7 @@ interface Submission {
 type PageState = "loading" | "ready" | "answering" | "submitting" | "done" | "expired" | "error";
 
 export default function TestPublicPage({ params }: { params: { token: string } }) {
+  const token = params.token;
   const [pageState, setPageState] = useState<PageState>("loading");
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [answers, setAnswers] = useState<Record<number, number>>({});
@@ -30,10 +31,11 @@ export default function TestPublicPage({ params }: { params: { token: string } }
 
   useEffect(() => {
     async function loadSubmission() {
+      if (!token) { setPageState("error"); return; }
       const { data, error } = await supabasePublic
         .from("test_submissions")
         .select("id, test_id, test_short_name, status, token")
-        .eq("token", params.token)
+        .eq("token", token)
         .single();
 
       if (error || !data) { setPageState("error"); return; }
@@ -43,7 +45,7 @@ export default function TestPublicPage({ params }: { params: { token: string } }
       setPageState("ready");
     }
     loadSubmission();
-  }, [params.token]);
+  }, [token]);
 
   const test = submission ? TESTS_DATA.find(t => t.id === submission.test_id) : null;
   const questions = test?.questions ?? [];
@@ -68,7 +70,7 @@ export default function TestPublicPage({ params }: { params: { token: string } }
         level,
         completed_at: new Date().toISOString(),
       })
-      .eq("token", params.token);
+      .eq("token", token);
 
     if (error) { setError("Error al enviar. Por favor intenta de nuevo."); setPageState("answering"); return; }
     setPageState("done");
