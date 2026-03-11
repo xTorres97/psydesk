@@ -41,7 +41,9 @@ const TYPE_CFG: Record<AppType, string> = {
 };
 
 const dm  = (size: string): React.CSSProperties => ({ fontFamily: "var(--font-dm-sans)", fontSize: size });
-function toISO(d: Date) { return d.toISOString().split("T")[0]; }
+function toISO(d: Date) {
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Caracas" });
+}
 function toMin(t: string) { const [h,m] = t.split(":").map(Number); return h*60+(m||0); }
 function getInitials(first: string, last: string) { return `${first[0]??''}${last[0]??''}`.toUpperCase(); }
 function colorForName(name: string) { return AVATAR_COLORS[name.length % AVATAR_COLORS.length]; }
