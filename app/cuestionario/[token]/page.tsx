@@ -1,7 +1,7 @@
 // src/app/cuestionario/[token]/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { TESTS_DATA, calcScore, getMaxScore } from "@/components/tests/tests-data";
 
@@ -21,8 +21,8 @@ interface Submission {
 
 type PageState = "loading" | "ready" | "answering" | "submitting" | "done" | "expired" | "error";
 
-export default function TestPublicPage({ params }: { params: { token: string } }) {
-  const token = params.token;
+export default function TestPublicPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = use(params);
   const [pageState, setPageState] = useState<PageState>("loading");
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [answers, setAnswers] = useState<Record<number, number>>({});
@@ -31,16 +31,12 @@ export default function TestPublicPage({ params }: { params: { token: string } }
 
   useEffect(() => {
     async function loadSubmission() {
-         if (!token) { console.log("TOKEN UNDEFINED"); setPageState("error"); return; }
-  console.log("TOKEN:", token);
-  
-  const { data, error } = await supabasePublic
-    .from("test_submissions")
-    .select("id, test_id, test_short_name, status, token")
-    .eq("token", token)
-    .single();
-
-  console.log("DATA:", data, "ERROR:", error);
+      if (!token) { setPageState("error"); return; }
+      const { data, error } = await supabasePublic
+        .from("test_submissions")
+        .select("id, test_id, test_short_name, status, token")
+        .eq("token", token)
+        .single();
 
       if (error || !data) { setPageState("error"); return; }
       if (data.status === "completed" || data.status === "reviewed") { setPageState("expired"); return; }
