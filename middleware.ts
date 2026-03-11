@@ -26,7 +26,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Rutas públicas (no requieren sesión)
-  const publicRoutes = ["/login", "/register", "/auth/callback", "/auth/confirm"];
+  const publicRoutes = ["/login", "/register", "/auth/callback", "/auth/confirm", "/cuestionario"];
   const isPublic = publicRoutes.some(r => pathname.startsWith(r));
 
   // Si no hay sesión y está intentando acceder al dashboard → redirigir a login
