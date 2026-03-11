@@ -31,12 +31,16 @@ export default function TestPublicPage({ params }: { params: { token: string } }
 
   useEffect(() => {
     async function loadSubmission() {
-      if (!token) { setPageState("error"); return; }
-      const { data, error } = await supabasePublic
-        .from("test_submissions")
-        .select("id, test_id, test_short_name, status, token")
-        .eq("token", token)
-        .single();
+         if (!token) { console.log("TOKEN UNDEFINED"); setPageState("error"); return; }
+  console.log("TOKEN:", token);
+  
+  const { data, error } = await supabasePublic
+    .from("test_submissions")
+    .select("id, test_id, test_short_name, status, token")
+    .eq("token", token)
+    .single();
+
+  console.log("DATA:", data, "ERROR:", error);
 
       if (error || !data) { setPageState("error"); return; }
       if (data.status === "completed" || data.status === "reviewed") { setPageState("expired"); return; }
