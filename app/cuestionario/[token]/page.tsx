@@ -1,677 +1,269 @@
+// src/app/cuestionario/[token]/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { TESTS_DATA, CATEGORIES, PsychTest } from "@/components/tests/tests-data";
+import { useState, useEffect, use } from "react";
+import { createClient } from "@supabase/supabase-js";
+import { TESTS_DATA, calcScore, getMaxScore } from "@/components/tests/tests-data";
 
-type TestStatus = "sent" | "completed" | "reviewed";
-type TabSection = "biblioteca" | "enviados" | "resultados";
+// Cliente público sin sesión — para páginas que no requieren login
+const supabasePublic = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 interface Submission {
-  id: string; test_id: string; test_short_name: string; status: TestStatus;
-  sent_at: string; completed_at: string | null;
-  score: number | null; max_score: number | null; level: string | null;
-  notes: string | null; answers: Record<string, number> | null;
-  patient: { id: string; first_name: string; last_name: string; email: string | null; };
-}
-interface PatientOption { id: string; first_name: string; last_name: string; email: string | null; }
-
-const STATUS_META: Record<TestStatus, { label: string; color: string; bg: string }> = {
-  sent:      { label:"Enviado",    color:"var(--amber)", bg:"var(--amber-bg)" },
-  completed: { label:"Completado", color:"var(--blue)",  bg:"var(--blue-bg)"  },
-  reviewed:  { label:"Revisado",   color:"var(--green)", bg:"var(--green-bg)" },
-};
-
-const AVATAR_COLORS = ["#8B7355","#4A7BA7","#5C8A6E","#C47B2B","#B5594A","#7B6EA8"];
-const dm = (size: string): React.CSSProperties => ({ fontFamily: "var(--font-dm-sans)", fontSize: size });
-
-function getInitials(first: string, last: string) {
-  return `${first[0]??''}${last[0]??''}`.toUpperCase();
-}
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString("es-MX", { day:"numeric", month:"short", year:"numeric" });
-}
-function colorForName(name: string) {
-  return AVATAR_COLORS[name.length % AVATAR_COLORS.length];
+  id: string;
+  test_id: string;
+  test_short_name: string;
+  status: string;
+  token: string;
 }
 
-export function TestsView() {
-  const supabase = createClient();
-  const [tab, setTab]             = useState<TabSection>("biblioteca");
-  const [filterCat, setFilterCat] = useState("Todos");
-  const [selectedTest, setSelectedTest] = useState<PsychTest | null>(null);
-  const [sendModal, setSendModal] = useState<PsychTest | null>(null);
-  const [detailModal, setDetailModal] = useState<Submission | null>(null);
+type PageState = "loading" | "ready" | "answering" | "submitting" | "done" | "expired" | "error";
 
-  // Datos reales
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [patients, setPatients]       = useState<PatientOption[]>([]);
-  const [loadingSubs, setLoadingSubs] = useState(true);
-  const [userId, setUserId]           = useState("");
-
-  // Estado modal envío
-  const [sendPatientId, setSendPatientId] = useState("");
-  const [sending, setSending]             = useState(false);
-  const [sendError, setSendError]         = useState("");
-  const [sendSuccess, setSendSuccess]     = useState(false);
-  const [copiedLink, setCopiedLink]       = useState("");
-  const [linkCopied, setLinkCopied]       = useState(false);
-  const [answersModal, setAnswersModal]   = useState<Submission | null>(null);
+export default function TestPublicPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = use(params);
+  const [pageState, setPageState] = useState<PageState>("loading");
+  const [submission, setSubmission] = useState<Submission | null>(null);
+  const [answers, setAnswers] = useState<Record<number, number>>({});
+  const [currentQ, setCurrentQ] = useState(0);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    async function load() {
-      setLoadingSubs(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      setUserId(user.id);
+    async function loadSubmission() {
+      if (!token) { setPageState("error"); return; }
+      const { data, error } = await supabasePublic
+        .from("test_submissions")
+        .select("id, test_id, test_short_name, status, token")
+        .eq("token", token)
+        .single();
 
-      const [{ data: subs }, { data: pats }] = await Promise.all([
-        supabase.from("test_submissions").select(`
-          id, test_id, test_short_name, status, sent_at, completed_at,
-          score, max_score, level, notes, answers,
-          patient:patients(id, first_name, last_name, email)
-        `).eq("psychologist_id", user.id).order("sent_at", { ascending: false }),
-        supabase.from("patients").select("id, first_name, last_name, email").eq("psychologist_id", user.id).order("first_name"),
-      ]);
+      if (error || !data) { setPageState("error"); return; }
+      if (data.status === "completed" || data.status === "reviewed") { setPageState("expired"); return; }
 
-      setSubmissions((subs ?? []).map((s: any) => ({ ...s, patient: Array.isArray(s.patient) ? s.patient[0] : s.patient })) as Submission[]);
-      setPatients((pats ?? []) as PatientOption[]);
-      setLoadingSubs(false);
+      setSubmission(data);
+      setPageState("ready");
     }
-    load();
-  }, []);
+    loadSubmission();
+  }, [token]);
 
-  async function handleSendTest() {
-    if (!sendModal || !sendPatientId) return;
-    setSending(true); setSendError(""); setSendSuccess(false);
+  const test = submission ? TESTS_DATA.find(t => t.id === submission.test_id) : null;
+  const questions = test?.questions ?? [];
+  const progress = questions.length > 0 ? Math.round((Object.keys(answers).length / questions.length) * 100) : 0;
+  const currentQuestion = questions[currentQ];
+  const allAnswered = questions.length > 0 && Object.keys(answers).length === questions.length;
 
-    const patient = patients.find(p => p.id === sendPatientId);
-    if (!patient) { setSendError("Paciente no encontrado"); setSending(false); return; }
-    if (!patient.email) { setSendError("Este paciente no tiene email registrado. Agrega uno en su perfil."); setSending(false); return; }
+  async function handleSubmit() {
+    if (!submission || !test) return;
+    setPageState("submitting");
 
-    try {
-      const res = await fetch("/api/send-test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          patientId:      patient.id,
-          patientEmail:   patient.email,
-          patientName:    `${patient.first_name} ${patient.last_name}`.trim(),
-          testId:         sendModal.id,
-          testShortName:  sendModal.shortName,
-          psychologistId: userId,
-        }),
-      });
+    const { score, level, color, description } = calcScore(test.id, answers);
+    const maxScore = getMaxScore(test.id);
 
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Error al enviar");
+    const { error } = await supabasePublic
+      .from("test_submissions")
+      .update({
+        status:       "completed",
+        answers:      answers,
+        score,
+        max_score:    maxScore,
+        level,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("token", token);
 
-      // Agregar a la lista local
-      const newSub: Submission = {
-        id: json.token, test_id: sendModal.id, test_short_name: sendModal.shortName,
-        status: "sent", sent_at: new Date().toISOString(), completed_at: null,
-        score: null, max_score: null, level: null, notes: null, answers: null,
-        patient: { id: patient.id, first_name: patient.first_name, last_name: patient.last_name, email: patient.email },
-      };
-      setSubmissions(prev => [newSub, ...prev]);
-      setSendSuccess(true);
-
-      // También copiar link al portapapeles
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
-      setCopiedLink(`${appUrl}/cuestionario/${json.token}`);
-    } catch (e: any) {
-      setSendError(e.message ?? "Error al enviar");
-    } finally {
-      setSending(false);
-    }
+    if (error) { setError("Error al enviar. Por favor intenta de nuevo."); setPageState("answering"); return; }
+    setPageState("done");
   }
 
-  async function handleMarkReviewed(subId: string) {
-    const { error } = await supabase.from("test_submissions").update({ status: "reviewed" }).eq("id", subId);
-    if (!error) {
-      setSubmissions(prev => prev.map(s => s.id === subId ? { ...s, status: "reviewed" } : s));
-      setDetailModal(prev => prev?.id === subId ? { ...prev, status: "reviewed" } : prev);
-    }
-  }
+  const dm = (size: string) => ({ fontFamily: "'Helvetica Neue', Arial, sans-serif", fontSize: size });
 
-  const filteredTests = TESTS_DATA.filter(t => filterCat === "Todos" || t.category === filterCat);
-  const pendingCount  = submissions.filter(s => s.status === "completed").length;
+  // ── Estados de pantalla ───────────────────────────────────────────────────
+  if (pageState === "loading") return (
+    <div style={{ minHeight:"100vh", background:"#F5F0EA", display:"flex", alignItems:"center", justifyContent:"center" }}>
+      <div style={{ textAlign:"center" }}>
+        <div style={{ width:40, height:40, borderRadius:"50%", border:"3px solid #E8DFD0", borderTopColor:"#8B7355", animation:"spin .7s linear infinite", margin:"0 auto 16px" }} />
+        <p style={{ ...dm("14px"), color:"#A8A29E" }}>Cargando cuestionario...</p>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    </div>
+  );
 
-  return (
-    <div style={{ display:"flex", flexDirection:"column", height:"100%", maxWidth:1280, margin:"0 auto" }}>
-      <style>{`
-        .tests-tabs { display: flex; overflow-x: auto; }
-        .tests-tabs::-webkit-scrollbar { display: none; }
-        .tests-tab-long { display: inline; }
-        .tests-tab-short { display: none; }
-        .tests-sent-table { display: block; }
-        .tests-sent-cards { display: none; }
-        .tests-detail-desktop { display: flex; }
-        .tests-detail-mobile  { display: none; }
-        @media (max-width: 768px) {
-          .tests-tab-long  { display: none; }
-          .tests-tab-short { display: inline; }
-          .tests-sent-table { display: none !important; }
-          .tests-sent-cards { display: flex !important; }
-          .tests-detail-desktop { display: none !important; }
-          .tests-detail-mobile  { display: flex !important; }
-        }
-      `}</style>
+  if (pageState === "expired") return (
+    <div style={{ minHeight:"100vh", background:"#F5F0EA", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ maxWidth:440, width:"100%", background:"#FFFDF9", borderRadius:20, padding:"40px 36px", textAlign:"center", boxShadow:"0 4px 24px rgba(0,0,0,0.08)" }}>
+        <div style={{ fontSize:48, marginBottom:16 }}>✅</div>
+        <h1 style={{ fontFamily:"Georgia,serif", fontSize:22, fontWeight:600, color:"#1C1917", marginBottom:8 }}>Cuestionario ya completado</h1>
+        <p style={{ ...dm("14px"), color:"#57534E", lineHeight:1.6 }}>Este cuestionario ya fue respondido. Si crees que es un error, contacta a tu profesional de salud.</p>
+      </div>
+    </div>
+  );
 
-      {/* Header */}
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16, flexWrap:"wrap", gap:12 }}>
-        <div>
-          <h1 style={{ fontFamily:"var(--font-lora)", fontSize:24, fontWeight:600, color:"var(--text-primary)", letterSpacing:"-0.3px" }}>Tests psicológicos</h1>
-          <p style={{ ...dm("13px"), color:"var(--text-muted)", marginTop:4 }}>
-            {TESTS_DATA.length} tests · {pendingCount > 0 ? `${pendingCount} resultado${pendingCount>1?"s":""} pendiente${pendingCount>1?"s":""}` : "Sin resultados pendientes"}
+  if (pageState === "error") return (
+    <div style={{ minHeight:"100vh", background:"#F5F0EA", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ maxWidth:440, width:"100%", background:"#FFFDF9", borderRadius:20, padding:"40px 36px", textAlign:"center", boxShadow:"0 4px 24px rgba(0,0,0,0.08)" }}>
+        <div style={{ fontSize:48, marginBottom:16 }}>🔗</div>
+        <h1 style={{ fontFamily:"Georgia,serif", fontSize:22, fontWeight:600, color:"#1C1917", marginBottom:8 }}>Link no válido</h1>
+        <p style={{ ...dm("14px"), color:"#57534E", lineHeight:1.6 }}>Este enlace no existe o ha expirado. Solicita uno nuevo a tu profesional de salud.</p>
+      </div>
+    </div>
+  );
+
+  if (pageState === "done") return (
+    <div style={{ minHeight:"100vh", background:"#F5F0EA", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ maxWidth:480, width:"100%", background:"#FFFDF9", borderRadius:20, padding:"48px 40px", textAlign:"center", boxShadow:"0 4px 24px rgba(0,0,0,0.08)", animation:"fadeIn .4s ease" }}>
+        <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}`}</style>
+        <div style={{ width:72, height:72, borderRadius:"50%", background:"#5C8A6E18", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 20px", fontSize:32 }}>✓</div>
+        <h1 style={{ fontFamily:"Georgia,serif", fontSize:24, fontWeight:600, color:"#1C1917", marginBottom:12 }}>¡Gracias por completarlo!</h1>
+        <p style={{ ...dm("15px"), color:"#57534E", lineHeight:1.7, marginBottom:24 }}>
+          Tus respuestas han sido enviadas de forma segura a tu profesional de salud. 
+          Puedes cerrar esta página.
+        </p>
+        <div style={{ background:"#F5F0EA", borderRadius:12, padding:"16px 20px" }}>
+          <p style={{ margin:0, ...dm("13px"), color:"#A8A29E", lineHeight:1.5 }}>
+            🔒 Tus respuestas son confidenciales y solo tu profesional puede verlas.
           </p>
         </div>
       </div>
+    </div>
+  );
 
-      {/* Tabs */}
-      <div className="tests-tabs" style={{ borderBottom:"1px solid var(--border-light)", marginBottom:20, flexShrink:0 }}>
-        {(["biblioteca","enviados","resultados"] as TabSection[]).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            style={{ padding:"10px 16px", background:"transparent", border:"none", borderBottom:`2px solid ${tab===t?"var(--accent)":"transparent"}`, cursor:"pointer", transition:"all .15s", ...dm("13px"), color:tab===t?"var(--accent)":"var(--text-secondary)", fontWeight:tab===t?500:400, whiteSpace:"nowrap", flexShrink:0, position:"relative" }}
+  // ── Pantalla de bienvenida ─────────────────────────────────────────────────
+  if (pageState === "ready") return (
+    <div style={{ minHeight:"100vh", background:"#F5F0EA", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ maxWidth:500, width:"100%", background:"#FFFDF9", borderRadius:20, overflow:"hidden", boxShadow:"0 4px 24px rgba(0,0,0,0.08)", animation:"fadeIn .3s ease" }}>
+        <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
+        <div style={{ background:"#8B7355", padding:"28px 36px" }}>
+          <p style={{ margin:0, fontSize:20, fontWeight:700, color:"#FAF7F2", fontFamily:"Georgia,serif" }}>PsyDesk</p>
+          <p style={{ margin:"4px 0 0", fontSize:13, color:"#D4C5B0" }}>Cuestionario de salud</p>
+        </div>
+        <div style={{ padding:"36px" }}>
+          <h1 style={{ fontFamily:"Georgia,serif", fontSize:22, fontWeight:600, color:"#1C1917", marginBottom:12 }}>Bienvenido/a</h1>
+          <p style={{ ...dm("14px"), color:"#57534E", lineHeight:1.7, marginBottom:20 }}>
+            Tu profesional de salud te ha enviado este cuestionario. 
+            Por favor, responde con sinceridad — no hay respuestas correctas o incorrectas.
+          </p>
+          <div style={{ background:"#FAF7F2", border:"1px solid #E8DFD0", borderRadius:12, padding:"16px 20px", marginBottom:28 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+              <span style={{ ...dm("12px"), color:"#A8A29E" }}>Preguntas</span>
+              <span style={{ ...dm("12px"), fontWeight:600, color:"#1C1917" }}>{questions.length} ítems</span>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between" }}>
+              <span style={{ ...dm("12px"), color:"#A8A29E" }}>Tiempo estimado</span>
+              <span style={{ ...dm("12px"), fontWeight:600, color:"#1C1917" }}>~{test?.questions ? Math.ceil(questions.length * 0.5) : 5} minutos</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setPageState("answering")}
+            style={{ width:"100%", padding:"14px", background:"#8B7355", color:"#FAF7F2", border:"none", borderRadius:12, fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"'Helvetica Neue',Arial,sans-serif", boxShadow:"0 2px 8px rgba(139,115,85,0.3)", transition:"opacity .15s" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity="0.9"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity="1"; }}
           >
-            <span className="tests-tab-long">
-              {t==="biblioteca"?"📚 Biblioteca":t==="enviados"?"📤 Enviados":"📊 Resultados"}
-            </span>
-            <span className="tests-tab-short">
-              {t==="biblioteca"?"📚":t==="enviados"?"📤":"📊"}
-            </span>
-            {t==="resultados" && pendingCount > 0 && (
-              <span style={{ position:"absolute", top:6, right:4, width:16, height:16, borderRadius:"50%", background:"var(--red)", color:"#fff", ...dm("9px"), display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700 }}>{pendingCount}</span>
-            )}
+            Comenzar cuestionario →
           </button>
-        ))}
+          <p style={{ margin:"16px 0 0", ...dm("12px"), color:"#A8A29E", textAlign:"center" }}>🔒 Tus respuestas son confidenciales</p>
+        </div>
       </div>
+    </div>
+  );
 
-      {/* Contenido */}
-      <div style={{ display:"flex", flex:1, overflow:"hidden", gap:16 }}>
-        <div style={{ flex:1, overflowY:"auto" }}>
+  // ── Pantalla de preguntas ──────────────────────────────────────────────────
+  return (
+    <div style={{ minHeight:"100vh", background:"#F5F0EA", padding:"24px 16px" }}>
+      <style>{`
+        @keyframes slideQ { from{opacity:0;transform:translateX(16px)} to{opacity:1;transform:translateX(0)} }
+        .opt-btn:hover { border-color: #8B7355 !important; background: #FAF7F2 !important; }
+      `}</style>
+      <div style={{ maxWidth:560, margin:"0 auto" }}>
 
-          {/* ── BIBLIOTECA ── */}
-          {tab === "biblioteca" && (
-            <>
-              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:20, overflowX:"auto", paddingBottom:4 }}>
-                {CATEGORIES.map(c => (
-                  <span key={c} className={`chip${filterCat===c?" on":""}`} onClick={() => setFilterCat(c)} style={{ cursor:"pointer", flexShrink:0 }}>{c}</span>
-                ))}
-              </div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:14 }}>
-                {filteredTests.map(t => (
-                  <div key={t.id} className="card"
-                    onClick={() => setSelectedTest(t.id===selectedTest?.id?null:t)}
-                    style={{ padding:18, cursor:"pointer", borderColor:selectedTest?.id===t.id?"var(--accent-light)":"var(--border-light)", background:selectedTest?.id===t.id?"var(--accent-bg)":"var(--bg-card)", transition:"all .2s" }}
-                    onMouseEnter={e => { if(selectedTest?.id!==t.id){(e.currentTarget as HTMLDivElement).style.transform="translateY(-2px)";(e.currentTarget as HTMLDivElement).style.boxShadow="0 4px 16px rgba(28,25,23,0.10)";} }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform="translateY(0)";(e.currentTarget as HTMLDivElement).style.boxShadow=""; }}
-                  >
-                    <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12 }}>
-                      <div style={{ width:44, height:44, borderRadius:12, background:`${t.color}14`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>{t.icon}</div>
-                      <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:5 }}>
-                        <span className="tag" style={{ background:`${t.color}14`, color:t.color }}>{t.category}</span>
-                        {t.validated && <span className="tag" style={{ background:"var(--green-bg)", color:"var(--green)" }}>✓ Validado</span>}
-                        <span className="tag" style={{ background:"var(--surface)", color:"var(--text-muted)" }}>{t.ageGroup}</span>
-                      </div>
-                    </div>
-                    <div style={{ ...dm("15px"), fontWeight:700, color:"var(--text-primary)", marginBottom:2 }}>{t.shortName}</div>
-                    <div style={{ ...dm("11px"), color:"var(--text-muted)", marginBottom:8 }}>{t.name}</div>
-                    <p style={{ ...dm("12px"), color:"var(--text-secondary)", lineHeight:1.5, marginBottom:12, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" } as React.CSSProperties}>{t.description}</p>
-                    <div style={{ display:"flex", gap:12, marginBottom:12 }}>
-                      <span style={{ ...dm("11px"), color:"var(--text-muted)" }}>❓ {t.questions.length} ítems</span>
-                      <span style={{ ...dm("11px"), color:"var(--text-muted)" }}>⏱ ~{Math.ceil(t.questions.length * 0.5)} min</span>
-                    </div>
-                    <button className="btn-p" style={{ width:"100%", fontSize:12, padding:"8px 0" }}
-                      onClick={e => { e.stopPropagation(); setSendModal(t); setSendSuccess(false); setSendError(""); setSendPatientId(patients[0]?.id ?? ""); }}
-                    >📤 Enviar a paciente</button>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* ── ENVIADOS ── */}
-          {tab === "enviados" && (
-            <>
-              {loadingSubs ? (
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"center", padding:60, gap:10 }}>
-                  <div style={{ width:18, height:18, borderRadius:"50%", border:"2px solid var(--border)", borderTopColor:"var(--accent)", animation:"spin .7s linear infinite" }} />
-                  <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-                </div>
-              ) : submissions.length === 0 ? (
-                <div className="card" style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"56px 24px", gap:12, textAlign:"center" }}>
-                  <span style={{ fontSize:40, opacity:0.3 }}>📤</span>
-                  <div style={{ fontFamily:"var(--font-lora)", fontSize:18, fontWeight:600, color:"var(--text-primary)" }}>Sin envíos aún</div>
-                  <div style={{ ...dm("13px"), color:"var(--text-muted)" }}>Envía un test desde la Biblioteca para verlo aquí.</div>
-                </div>
-              ) : (
-                <>
-                  <div className="tests-sent-table card" style={{ overflow:"hidden" }}>
-                    <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1.5fr 1fr auto", gap:12, padding:"10px 18px", background:"var(--surface)", borderBottom:"1px solid var(--border-light)" }}>
-                      {["Paciente","Test","Enviado","Estado",""].map((h,i) => (
-                        <span key={i} style={{ ...dm("11px"), fontWeight:600, color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:"0.5px" }}>{h}</span>
-                      ))}
-                    </div>
-                    {submissions.map(s => {
-                      const pName = `${s.patient.first_name} ${s.patient.last_name}`;
-                      const color = colorForName(pName);
-                      return (
-                        <div key={s.id}
-                          style={{ display:"grid", gridTemplateColumns:"2fr 1fr 1.5fr 1fr auto", gap:12, padding:"12px 18px", borderBottom:"1px solid var(--border-light)", alignItems:"center", transition:"background .15s" }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background="var(--surface)"; }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background="transparent"; }}
-                        >
-                          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                            <div style={{ width:32, height:32, borderRadius:"50%", background:`${color}18`, color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:600, fontFamily:"var(--font-dm-sans)", flexShrink:0 }}>
-                              {getInitials(s.patient.first_name, s.patient.last_name)}
-                            </div>
-                            <span style={{ ...dm("13px"), color:"var(--text-primary)", fontWeight:500 }}>{pName}</span>
-                          </div>
-                          <span style={{ ...dm("13px"), color:"var(--text-primary)", fontWeight:600 }}>{s.test_short_name}</span>
-                          <span style={{ ...dm("12px"), color:"var(--text-muted)" }}>{fmtDate(s.sent_at)}</span>
-                          <div><span className="tag" style={{ background:STATUS_META[s.status].bg, color:STATUS_META[s.status].color }}>{STATUS_META[s.status].label}</span></div>
-                          <button className="btn-g" style={{ padding:"5px 10px", fontSize:11 }}
-                            onClick={() => (s.status==="completed"||s.status==="reviewed") ? setDetailModal(s) : null}
-                          >
-                            {(s.status==="completed"||s.status==="reviewed")?"Ver resultado":"Pendiente"}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Móvil cards */}
-                  <div className="tests-sent-cards" style={{ flexDirection:"column", gap:10 }}>
-                    {submissions.map(s => {
-                      const pName = `${s.patient.first_name} ${s.patient.last_name}`;
-                      const color = colorForName(pName);
-                      return (
-                        <div key={s.id} className="card" style={{ padding:"14px 16px", borderRadius:14 }}>
-                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-                            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                              <div style={{ width:36, height:36, borderRadius:"50%", background:`${color}18`, color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:600, fontFamily:"var(--font-dm-sans)", flexShrink:0 }}>
-                                {getInitials(s.patient.first_name, s.patient.last_name)}
-                              </div>
-                              <div>
-                                <div style={{ ...dm("13px"), fontWeight:500, color:"var(--text-primary)" }}>{pName}</div>
-                                <div style={{ ...dm("11px"), color:"var(--text-muted)" }}>{fmtDate(s.sent_at)}</div>
-                              </div>
-                            </div>
-                            <span className="tag" style={{ background:STATUS_META[s.status].bg, color:STATUS_META[s.status].color }}>{STATUS_META[s.status].label}</span>
-                          </div>
-                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                            <span style={{ ...dm("14px"), fontWeight:700, color:"var(--text-primary)" }}>{s.test_short_name}</span>
-                            {(s.status==="completed"||s.status==="reviewed") && (
-                              <button className="btn-g" style={{ padding:"5px 12px", fontSize:12 }} onClick={() => setDetailModal(s)}>Ver resultado</button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-
-          {/* ── RESULTADOS ── */}
-          {tab === "resultados" && (
-            <>
-              {submissions.filter(s => s.status==="completed"||s.status==="reviewed").length === 0 ? (
-                <div className="card" style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"56px 24px", gap:12, textAlign:"center" }}>
-                  <span style={{ fontSize:40, opacity:0.3 }}>📊</span>
-                  <div style={{ fontFamily:"var(--font-lora)", fontSize:18, fontWeight:600, color:"var(--text-primary)" }}>Sin resultados aún</div>
-                  <div style={{ ...dm("13px"), color:"var(--text-muted)" }}>Los resultados aparecerán aquí cuando los pacientes completen sus tests.</div>
-                </div>
-              ) : (
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
-                  {submissions.filter(s => s.status==="completed"||s.status==="reviewed").map(s => {
-                    const pName = `${s.patient.first_name} ${s.patient.last_name}`;
-                    const color = colorForName(pName);
-                    const pct = s.score != null && s.max_score ? Math.round((s.score/s.max_score)*100) : 0;
-                    // Buscar color del nivel
-                    const testDef = TESTS_DATA.find(t => t.id === s.test_id);
-                    const rangeColor = testDef?.scoring.ranges.find(r => r.level === s.level)?.color ?? "var(--accent)";
-                    return (
-                      <div key={s.id} className="card" style={{ padding:"18px", borderRadius:16 }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-                          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                            <div style={{ width:38, height:38, borderRadius:"50%", background:`${color}18`, color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, fontFamily:"var(--font-dm-sans)" }}>
-                              {getInitials(s.patient.first_name, s.patient.last_name)}
-                            </div>
-                            <div>
-                              <div style={{ ...dm("13px"), fontWeight:500, color:"var(--text-primary)" }}>{pName}</div>
-                              <div style={{ ...dm("11px"), color:"var(--text-muted)" }}>{s.test_short_name} · {s.completed_at ? fmtDate(s.completed_at) : "—"}</div>
-                            </div>
-                          </div>
-                          <span className="tag" style={{ background:STATUS_META[s.status].bg, color:STATUS_META[s.status].color }}>{STATUS_META[s.status].label}</span>
-                        </div>
-                        {s.score != null && (
-                          <>
-                            <div style={{ display:"flex", alignItems:"baseline", gap:4, marginBottom:8 }}>
-                              <span style={{ fontFamily:"var(--font-lora)", fontSize:32, fontWeight:600, color:rangeColor }}>{s.score}</span>
-                              <span style={{ ...dm("13px"), color:"var(--text-muted)" }}>/ {s.max_score}</span>
-                              <span className="tag" style={{ marginLeft:6, background:`${rangeColor}18`, color:rangeColor }}>{s.level}</span>
-                            </div>
-                            <div className="pbar" style={{ height:6, borderRadius:3, marginBottom:12 }}>
-                              <div className="pfill" style={{ width:`${pct}%`, background:rangeColor, borderRadius:3 }} />
-                            </div>
-                          </>
-                        )}
-                        <div style={{ display:"flex", gap:8 }}>
-                          <button className="btn-g" style={{ flex:1, fontSize:12, padding:"7px" }} onClick={() => setDetailModal(s)}>📊 Ver detalle</button>
-                          {s.status === "completed" && (
-                            <button className="btn-p" style={{ flex:1, fontSize:12, padding:"7px" }} onClick={() => handleMarkReviewed(s.id)}>✓ Marcar revisado</button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          )}
+        {/* Header */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:24 }}>
+          <p style={{ margin:0, fontSize:16, fontWeight:700, color:"#8B7355", fontFamily:"Georgia,serif" }}>PsyDesk</p>
+          <span style={{ ...dm("13px"), color:"#A8A29E" }}>{currentQ + 1} / {questions.length}</span>
         </div>
 
-        {/* Panel detalle test — desktop */}
-        {selectedTest && tab==="biblioteca" && (
-          <div className="tests-detail-desktop" style={{ width:280, flexShrink:0, flexDirection:"column" }}>
-            <div style={{ borderRadius:16, overflow:"hidden", border:"1px solid var(--border-light)", background:"var(--bg-card)", padding:20, overflowY:"auto", animation:"slideIn .25s ease" }}>
-              <style>{`@keyframes slideIn{from{transform:translateX(10px);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
-              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}>
-                <div style={{ width:48, height:48, borderRadius:12, background:`${selectedTest.color}14`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>{selectedTest.icon}</div>
-                <button onClick={() => setSelectedTest(null)} style={{ background:"transparent", border:"none", cursor:"pointer", color:"var(--text-muted)", fontSize:16 }}>✕</button>
-              </div>
-              <div style={{ ...dm("16px"), fontWeight:700, color:"var(--text-primary)", marginBottom:2 }}>{selectedTest.shortName}</div>
-              <div style={{ ...dm("12px"), color:"var(--text-muted)", marginBottom:12 }}>{selectedTest.name}</div>
-              <p style={{ ...dm("13px"), color:"var(--text-secondary)", lineHeight:1.6, marginBottom:16 }}>{selectedTest.description}</p>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
-                {[
-                  { label:"Ítems",      val:selectedTest.questions.length },
-                  { label:"Duración",   val:`~${Math.ceil(selectedTest.questions.length*0.5)} min` },
-                  { label:"Categoría",  val:selectedTest.category },
-                  { label:"Edad",       val:selectedTest.ageGroup },
-                ].map((r,i) => (
-                  <div key={i} style={{ background:"var(--surface)", borderRadius:10, padding:"10px 12px" }}>
-                    <div style={{ ...dm("10px"), color:"var(--text-muted)", marginBottom:2 }}>{r.label}</div>
-                    <div style={{ ...dm("13px"), fontWeight:600, color:"var(--text-primary)" }}>{r.val}</div>
-                  </div>
-                ))}
-              </div>
-              {/* Rangos de puntuación */}
-              <div style={{ marginBottom:16 }}>
-                <div style={{ ...dm("11px"), color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:"0.4px", marginBottom:8 }}>Rangos de puntuación</div>
-                {selectedTest.scoring.ranges.map((r,i) => (
-                  <div key={i} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
-                    <span style={{ width:8, height:8, borderRadius:"50%", background:r.color, flexShrink:0 }} />
-                    <span style={{ ...dm("12px"), color:"var(--text-secondary)" }}>{r.level}</span>
-                    <span style={{ ...dm("11px"), color:"var(--text-muted)", marginLeft:"auto" }}>{r.min}–{r.max}</span>
-                  </div>
-                ))}
-              </div>
-              <button className="btn-p" style={{ width:"100%" }}
-                onClick={() => { setSendModal(selectedTest); setSelectedTest(null); setSendSuccess(false); setSendError(""); setSendPatientId(patients[0]?.id ?? ""); }}
-              >📤 Enviar a paciente</button>
-            </div>
-          </div>
-        )}
-      </div>
+        {/* Barra de progreso */}
+        <div style={{ height:4, background:"#E8DFD0", borderRadius:2, marginBottom:32, overflow:"hidden" }}>
+          <div style={{ height:"100%", width:`${progress}%`, background:"#8B7355", borderRadius:2, transition:"width .4s ease" }} />
+        </div>
 
-      {/* Panel móvil */}
-      {selectedTest && tab==="biblioteca" && (
-        <>
-          <div onClick={() => setSelectedTest(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.4)", zIndex:60, backdropFilter:"blur(2px)" }} className="tests-detail-mobile" />
-          <div className="tests-detail-mobile"
-            style={{ position:"fixed", bottom:0, left:0, right:0, background:"var(--bg-card)", borderRadius:"20px 20px 0 0", border:"1px solid var(--border-light)", boxShadow:"0 -4px 24px rgba(0,0,0,0.12)", zIndex:61, maxHeight:"80vh", flexDirection:"column", padding:"20px", overflowY:"auto", animation:"slideUp .25s ease" }}>
-            <style>{`@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}`}</style>
-            <div style={{ display:"flex", justifyContent:"center", marginBottom:16 }}>
-              <div style={{ width:36, height:4, borderRadius:2, background:"var(--border)" }} />
-            </div>
-            <div style={{ ...dm("16px"), fontWeight:700, color:"var(--text-primary)", marginBottom:4 }}>{selectedTest.shortName}</div>
-            <div style={{ ...dm("12px"), color:"var(--text-muted)", marginBottom:12 }}>{selectedTest.name}</div>
-            <p style={{ ...dm("13px"), color:"var(--text-secondary)", lineHeight:1.6, marginBottom:16 }}>{selectedTest.description}</p>
-            <button className="btn-p" style={{ width:"100%" }}
-              onClick={() => { setSendModal(selectedTest); setSelectedTest(null); setSendSuccess(false); setSendError(""); setSendPatientId(patients[0]?.id ?? ""); }}
-            >📤 Enviar a paciente</button>
-          </div>
-        </>
-      )}
-
-      {/* Modal enviar test */}
-      {sendModal && (
-        <>
-          <div onClick={() => { setSendModal(null); setSendSuccess(false); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.4)", zIndex:70, backdropFilter:"blur(4px)" }} />
-          <div style={{
-            position:"fixed", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
-            background:"var(--bg-card)", borderRadius:20, padding:28,
-            width:"min(440px, 92vw)", zIndex:71,
-            boxShadow:"0 8px 28px rgba(28,25,23,0.14)", animation:"popIn .2s ease",
-          }}>
-            <style>{`@keyframes popIn{from{transform:translate(-50%,-48%) scale(.95);opacity:0}to{transform:translate(-50%,-50%) scale(1);opacity:1}}`}</style>
-
-            {!sendSuccess ? (
-              <>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
-                  <div>
-                    <div style={{ fontFamily:"var(--font-lora)", fontSize:17, fontWeight:600, color:"var(--text-primary)" }}>Enviar cuestionario</div>
-                    <div style={{ ...dm("12px"), color:"var(--text-muted)", marginTop:3 }}>El paciente recibirá un email con el link</div>
-                  </div>
-                  <button onClick={() => setSendModal(null)} style={{ background:"transparent", border:"none", cursor:"pointer", color:"var(--text-muted)", fontSize:16 }}>✕</button>
-                </div>
-
-                {/* Info del test — sin revelar el nombre completo */}
-                <div style={{ padding:"12px 16px", borderRadius:12, background:"var(--surface)", border:"1px solid var(--border-light)", marginBottom:20 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                    <div style={{ width:36, height:36, borderRadius:10, background:`${sendModal.color}14`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{sendModal.icon}</div>
-                    <div>
-                      <div style={{ ...dm("13px"), fontWeight:600, color:"var(--text-primary)" }}>Cuestionario de {sendModal.category}</div>
-                      <div style={{ ...dm("11px"), color:"var(--text-muted)" }}>{sendModal.questions.length} ítems · ~{Math.ceil(sendModal.questions.length*0.5)} min</div>
-                    </div>
-                  </div>
-                  <div style={{ marginTop:10, padding:"8px 10px", borderRadius:8, background:"var(--amber-bg)", border:"1px solid var(--amber)22" }}>
-                    <span style={{ ...dm("11px"), color:"var(--amber)" }}>⚠ El paciente no verá el nombre del test</span>
-                  </div>
-                </div>
-
-                {/* Selector de paciente */}
-                <div style={{ marginBottom:16 }}>
-                  <div style={{ ...dm("11px"), color:"var(--text-muted)", marginBottom:6, textTransform:"uppercase", letterSpacing:"0.4px", fontWeight:600 }}>Paciente</div>
-                  {patients.length === 0 ? (
-                    <div style={{ ...dm("13px"), color:"var(--text-muted)", padding:"10px 14px", background:"var(--surface)", borderRadius:10 }}>No hay pacientes registrados</div>
-                  ) : (
-                    <select
-                      value={sendPatientId}
-                      onChange={e => setSendPatientId(e.target.value)}
-                      style={{ width:"100%", padding:"10px 12px", borderRadius:10, border:"1px solid var(--border)", background:"var(--surface)", color:"var(--text-primary)", fontFamily:"var(--font-dm-sans)", fontSize:13, outline:"none" }}
-                    >
-                      <option value="">— Seleccionar paciente —</option>
-                      {patients.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.first_name} {p.last_name}{p.email ? ` — ${p.email}` : " — sin email"}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {sendPatientId && !patients.find(p => p.id === sendPatientId)?.email && (
-                    <div style={{ ...dm("11px"), color:"var(--red)", marginTop:6 }}>⚠ Este paciente no tiene email. Agrégalo en su perfil.</div>
-                  )}
-                </div>
-
-                {sendError && (
-                  <div style={{ padding:"10px 14px", borderRadius:10, background:"var(--red-bg)", border:"1px solid var(--red)33", ...dm("12px"), color:"var(--red)", marginBottom:14 }}>⚠ {sendError}</div>
-                )}
-
-                <div style={{ display:"flex", gap:10 }}>
-                  <button className="btn-g" style={{ flex:1 }} onClick={() => setSendModal(null)}>Cancelar</button>
-                  <button className="btn-p" style={{ flex:1, opacity: (!sendPatientId || sending) ? 0.6 : 1, cursor: (!sendPatientId || sending) ? "not-allowed" : "pointer" }}
-                    onClick={handleSendTest}
-                    disabled={!sendPatientId || sending}
-                  >
-                    {sending ? "Enviando..." : "📤 Enviar por email"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              /* Éxito */
-              <div style={{ textAlign:"center" }}>
-                <div style={{ width:60, height:60, borderRadius:"50%", background:"var(--green-bg)", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 16px", fontSize:26 }}>✅</div>
-                <div style={{ fontFamily:"var(--font-lora)", fontSize:18, fontWeight:600, color:"var(--text-primary)", marginBottom:8 }}>¡Cuestionario enviado!</div>
-                <div style={{ ...dm("13px"), color:"var(--text-muted)", marginBottom:20, lineHeight:1.6 }}>
-                  El paciente recibirá un email con el link para completarlo.
-                </div>
-                {copiedLink && (
-                  <div style={{ background:"var(--surface)", borderRadius:10, padding:"10px 14px", marginBottom:16, wordBreak:"break-all" }}>
-                    <div style={{ ...dm("10px"), color:"var(--text-muted)", marginBottom:4 }}>Link de respaldo</div>
-                    <div style={{ ...dm("12px"), color:"var(--accent)" }}>{copiedLink}</div>
+        {/* Pregunta actual */}
+        {currentQuestion && (
+          <div key={currentQ} style={{ animation:"slideQ .25s ease" }}>
+            <div style={{ background:"#FFFDF9", borderRadius:20, padding:"32px 28px", boxShadow:"0 2px 12px rgba(0,0,0,0.06)", marginBottom:16 }}>
+              <p style={{ margin:"0 0 28px", fontFamily:"Georgia,serif", fontSize:18, fontWeight:600, color:"#1C1917", lineHeight:1.5 }}>
+                {currentQuestion.text}
+              </p>
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {currentQuestion.options.map(opt => {
+                  const selected = answers[currentQuestion.id] === opt.value;
+                  return (
                     <button
-                      onClick={() => { navigator.clipboard.writeText(copiedLink); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); }}
-                      style={{ marginTop:8, padding:"5px 14px", borderRadius:8, border:`1px solid ${linkCopied?"var(--green)":"var(--border)"}`, background:linkCopied?"var(--green-bg)":"var(--surface)", color:linkCopied?"var(--green)":"var(--text-secondary)", ...dm("11px"), cursor:"pointer", transition:"all .2s" }}
-                    >{linkCopied ? "✓ Copiado" : "📋 Copiar link"}</button>
-                  </div>
-                )}
-                <button className="btn-p" style={{ width:"100%" }} onClick={() => { setSendModal(null); setSendSuccess(false); setTab("enviados"); }}>Ver en Enviados</button>
+                      key={opt.value}
+                      className="opt-btn"
+                      onClick={() => {
+                        setAnswers(prev => ({ ...prev, [currentQuestion.id]: opt.value }));
+                        // Auto-avanzar después de un momento
+                        setTimeout(() => {
+                          if (currentQ < questions.length - 1) setCurrentQ(q => q + 1);
+                        }, 300);
+                      }}
+                      style={{
+                        padding:"14px 18px", border:`2px solid ${selected?"#8B7355":"#E8DFD0"}`,
+                        borderRadius:12, background: selected ? "#FAF7F2" : "#FFFDF9",
+                        cursor:"pointer", textAlign:"left",
+                        ...dm("14px"), color: selected ? "#8B7355" : "#57534E",
+                        fontWeight: selected ? 600 : 400,
+                        transition:"all .15s",
+                        display:"flex", alignItems:"center", gap:12,
+                      }}
+                    >
+                      <span style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${selected?"#8B7355":"#D4C5B0"}`, background:selected?"#8B7355":"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all .15s" }}>
+                        {selected && <span style={{ width:8, height:8, borderRadius:"50%", background:"#FAF7F2", display:"block" }} />}
+                      </span>
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* Modal detalle resultado */}
-      {detailModal && (
-        <>
-          <div onClick={() => setDetailModal(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:80, backdropFilter:"blur(4px)" }} />
-          <div style={{
-            position:"fixed", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
-            background:"var(--bg-card)", borderRadius:20, padding:28,
-            width:"min(480px, 94vw)", maxHeight:"85vh", overflowY:"auto", zIndex:81,
-            boxShadow:"0 8px 28px rgba(28,25,23,0.2)", animation:"popIn .2s ease",
-          }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
-              <div>
-                <div style={{ fontFamily:"var(--font-lora)", fontSize:17, fontWeight:600, color:"var(--text-primary)" }}>
-                  Resultado — {detailModal.test_short_name}
-                </div>
-                <div style={{ ...dm("12px"), color:"var(--text-muted)", marginTop:3 }}>
-                  {`${detailModal.patient.first_name} ${detailModal.patient.last_name}`} · {detailModal.completed_at ? fmtDate(detailModal.completed_at) : "—"}
-                </div>
-              </div>
-              <button onClick={() => setDetailModal(null)} style={{ background:"transparent", border:"none", cursor:"pointer", color:"var(--text-muted)", fontSize:16 }}>✕</button>
             </div>
 
-            {/* Score */}
-            {detailModal.score != null && (() => {
-              const testDef = TESTS_DATA.find(t => t.id === detailModal.test_id);
-              const rangeColor = testDef?.scoring.ranges.find(r => r.level === detailModal.level)?.color ?? "var(--accent)";
-              const rangeDesc  = testDef?.scoring.ranges.find(r => r.level === detailModal.level)?.description ?? "";
-              const pct = detailModal.max_score ? Math.round((detailModal.score/detailModal.max_score)*100) : 0;
-              return (
-                <div style={{ background:"var(--surface)", borderRadius:14, padding:"20px", marginBottom:20, textAlign:"center" }}>
-                  <div style={{ fontFamily:"var(--font-lora)", fontSize:48, fontWeight:700, color:rangeColor, lineHeight:1 }}>{detailModal.score}</div>
-                  <div style={{ ...dm("13px"), color:"var(--text-muted)", marginBottom:10 }}>de {detailModal.max_score} puntos</div>
-                  <span className="tag" style={{ background:`${rangeColor}18`, color:rangeColor, fontSize:13, padding:"5px 14px" }}>{detailModal.level}</span>
-                  <div style={{ ...dm("12px"), color:"var(--text-secondary)", marginTop:10, lineHeight:1.5 }}>{rangeDesc}</div>
-                  <div className="pbar" style={{ height:8, borderRadius:4, margin:"16px 0 0" }}>
-                    <div className="pfill" style={{ width:`${pct}%`, background:rangeColor, borderRadius:4 }} />
-                  </div>
-                </div>
-              );
-            })()}
+            {/* Navegación */}
+            <div style={{ display:"flex", gap:10, justifyContent:"space-between" }}>
+              <button
+                onClick={() => setCurrentQ(q => Math.max(0, q - 1))}
+                disabled={currentQ === 0}
+                style={{ padding:"12px 20px", border:"1px solid #E8DFD0", borderRadius:12, background:"#FFFDF9", cursor: currentQ===0?"not-allowed":"pointer", ...dm("14px"), color: currentQ===0?"#D4C5B0":"#57534E", opacity: currentQ===0?0.5:1, transition:"all .15s" }}
+              >← Anterior</button>
 
-            {/* Respuestas */}
-            <div style={{ display:"flex", gap:10, marginBottom:10 }}>
-              <button className="btn-g" style={{ flex:1 }} onClick={() => { setAnswersModal(detailModal); setDetailModal(null); }}>
-                📋 Ver respuestas
-              </button>
-              {detailModal.status !== "reviewed" && (
-                <button className="btn-p" style={{ flex:1 }} onClick={() => handleMarkReviewed(detailModal.id)}>
-                  ✓ Marcar revisado
+              {currentQ < questions.length - 1 ? (
+                <button
+                  onClick={() => setCurrentQ(q => q + 1)}
+                  disabled={answers[currentQuestion.id] === undefined}
+                  style={{ padding:"12px 24px", border:"none", borderRadius:12, background: answers[currentQuestion.id]!==undefined?"#8B7355":"#E8DFD0", color: answers[currentQuestion.id]!==undefined?"#FAF7F2":"#A8A29E", cursor: answers[currentQuestion.id]!==undefined?"pointer":"not-allowed", ...dm("14px"), fontWeight:600, transition:"all .15s" }}
+                >Siguiente →</button>
+              ) : (
+                <button
+                  onClick={handleSubmit}
+                  disabled={!allAnswered || pageState==="submitting"}
+                  style={{ padding:"12px 28px", border:"none", borderRadius:12, background: allAnswered?"#8B7355":"#E8DFD0", color: allAnswered?"#FAF7F2":"#A8A29E", cursor: allAnswered?"pointer":"not-allowed", ...dm("14px"), fontWeight:600, boxShadow: allAnswered?"0 2px 8px rgba(139,115,85,0.3)":"none", transition:"all .15s" }}
+                >
+                  {pageState==="submitting" ? "Enviando..." : "✓ Enviar respuestas"}
                 </button>
               )}
             </div>
-            <button className="btn-g" style={{ width:"100%" }} onClick={() => setDetailModal(null)}>Cerrar</button>
+
+            {error && <p style={{ ...dm("13px"), color:"#B5594A", textAlign:"center", marginTop:12 }}>{error}</p>}
           </div>
-        </>
-      )}
+        )}
 
-      {/* Modal respuestas detalladas */}
-      {answersModal && (() => {
-        const testDef = TESTS_DATA.find(t => t.id === answersModal.test_id);
-        const rawAnswers = answersModal.answers as Record<string, number> | null;
-        const rangeColor = testDef?.scoring.ranges.find(r => r.level === answersModal.level)?.color ?? "var(--accent)";
-        return (
-          <>
-            <div onClick={() => setAnswersModal(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:90, backdropFilter:"blur(4px)" }} />
-            <div style={{
-              position:"fixed", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
-              background:"var(--bg-card)", borderRadius:20, padding:28,
-              width:"min(560px, 94vw)", maxHeight:"88vh", overflowY:"auto", zIndex:91,
-              boxShadow:"0 8px 28px rgba(28,25,23,0.2)", animation:"popIn .2s ease",
-            }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
-                <div>
-                  <div style={{ fontFamily:"var(--font-lora)", fontSize:17, fontWeight:600, color:"var(--text-primary)" }}>
-                    Respuestas — {answersModal.test_short_name}
-                  </div>
-                  <div style={{ ...dm("12px"), color:"var(--text-muted)", marginTop:3 }}>
-                    {`${answersModal.patient.first_name} ${answersModal.patient.last_name}`} · {answersModal.completed_at ? fmtDate(answersModal.completed_at) : "—"}
-                  </div>
-                </div>
-                <button onClick={() => setAnswersModal(null)} style={{ background:"transparent", border:"none", cursor:"pointer", color:"var(--text-muted)", fontSize:16 }}>✕</button>
-              </div>
-
-              {/* Resumen score */}
-              {answersModal.score != null && (
-                <div style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 18px", background:"var(--surface)", borderRadius:12, marginBottom:20 }}>
-                  <div style={{ fontFamily:"var(--font-lora)", fontSize:32, fontWeight:700, color:rangeColor }}>{answersModal.score}</div>
-                  <div>
-                    <span className="tag" style={{ background:`${rangeColor}18`, color:rangeColor }}>{answersModal.level}</span>
-                    <div style={{ ...dm("11px"), color:"var(--text-muted)", marginTop:4 }}>de {answersModal.max_score} puntos</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Lista de preguntas y respuestas */}
-              {testDef && rawAnswers ? (
-                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-                  {testDef.questions.map((q, idx) => {
-                    const answerValue = rawAnswers[String(q.id)];
-                    const answerLabel = q.options.find(o => o.value === answerValue)?.label ?? "Sin respuesta";
-                    const isHigh = answerValue !== undefined && answerValue >= Math.max(...q.options.map(o => o.value)) * 0.7;
-                    return (
-                      <div key={q.id} style={{ padding:"14px 16px", borderRadius:12, border:"1px solid var(--border-light)", background:"var(--bg-card)" }}>
-                        <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                          <span style={{ ...dm("11px"), color:"var(--text-muted)", fontWeight:600, minWidth:22, paddingTop:1 }}>{idx+1}.</span>
-                          <div style={{ flex:1 }}>
-                            <div style={{ ...dm("13px"), color:"var(--text-secondary)", marginBottom:8, lineHeight:1.5 }}>{q.text}</div>
-                            <div style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"6px 12px", borderRadius:8, background: isHigh ? `${rangeColor}14` : "var(--surface)", border:`1px solid ${isHigh ? rangeColor+"33" : "var(--border-light)"}` }}>
-                              <span style={{ ...dm("12px"), fontWeight:600, color: isHigh ? rangeColor : "var(--text-primary)" }}>{answerLabel}</span>
-                              {answerValue !== undefined && (
-                                <span style={{ ...dm("11px"), color:"var(--text-muted)" }}>({answerValue} pts)</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div style={{ ...dm("13px"), color:"var(--text-muted)", textAlign:"center", padding:"24px 0" }}>No hay respuestas registradas</div>
-              )}
-
-              <div style={{ marginTop:20, display:"flex", gap:10 }}>
-                {answersModal.status !== "reviewed" && (
-                  <button className="btn-p" style={{ flex:1 }} onClick={() => { handleMarkReviewed(answersModal.id); setAnswersModal(null); }}>
-                    ✓ Marcar revisado
-                  </button>
-                )}
-                <button className="btn-g" style={{ flex:1 }} onClick={() => setAnswersModal(null)}>Cerrar</button>
-              </div>
-            </div>
-          </>
-        );
-      })()}
+        {/* Revisión final si ya respondió todo */}
+        {allAnswered && currentQ === questions.length - 1 && (
+          <div style={{ background:"#FFFDF9", border:"1px solid #E8DFD0", borderRadius:16, padding:"16px 20px", marginTop:16, textAlign:"center" }}>
+            <p style={{ margin:0, ...dm("13px"), color:"#5C8A6E" }}>✓ Has respondido todas las preguntas. Puedes enviar cuando estés listo/a.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -11,7 +11,7 @@ interface Submission {
   id: string; test_id: string; test_short_name: string; status: TestStatus;
   sent_at: string; completed_at: string | null;
   score: number | null; max_score: number | null; level: string | null;
-  notes: string | null;
+  notes: string | null; answers: Record<string, number> | null;
   patient: { id: string; first_name: string; last_name: string; email: string | null; };
 }
 interface PatientOption { id: string; first_name: string; last_name: string; email: string | null; }
@@ -55,6 +55,8 @@ export function TestsView() {
   const [sendError, setSendError]         = useState("");
   const [sendSuccess, setSendSuccess]     = useState(false);
   const [copiedLink, setCopiedLink]       = useState("");
+  const [linkCopied, setLinkCopied]       = useState(false);
+  const [answersModal, setAnswersModal]   = useState<Submission | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -66,7 +68,7 @@ export function TestsView() {
       const [{ data: subs }, { data: pats }] = await Promise.all([
         supabase.from("test_submissions").select(`
           id, test_id, test_short_name, status, sent_at, completed_at,
-          score, max_score, level, notes,
+          score, max_score, level, notes, answers,
           patient:patients(id, first_name, last_name, email)
         `).eq("psychologist_id", user.id).order("sent_at", { ascending: false }),
         supabase.from("patients").select("id, first_name, last_name, email").eq("psychologist_id", user.id).order("first_name"),
@@ -108,7 +110,7 @@ export function TestsView() {
       const newSub: Submission = {
         id: json.token, test_id: sendModal.id, test_short_name: sendModal.shortName,
         status: "sent", sent_at: new Date().toISOString(), completed_at: null,
-        score: null, max_score: null, level: null, notes: null,
+        score: null, max_score: null, level: null, notes: null, answers: null,
         patient: { id: patient.id, first_name: patient.first_name, last_name: patient.last_name, email: patient.email },
       };
       setSubmissions(prev => [newSub, ...prev]);
@@ -523,9 +525,9 @@ export function TestsView() {
                     <div style={{ ...dm("10px"), color:"var(--text-muted)", marginBottom:4 }}>Link de respaldo</div>
                     <div style={{ ...dm("12px"), color:"var(--accent)" }}>{copiedLink}</div>
                     <button
-                      onClick={() => { navigator.clipboard.writeText(copiedLink); }}
-                      style={{ marginTop:8, padding:"5px 14px", borderRadius:8, border:"1px solid var(--border)", background:"var(--surface)", color:"var(--text-secondary)", ...dm("11px"), cursor:"pointer" }}
-                    >📋 Copiar link</button>
+                      onClick={() => { navigator.clipboard.writeText(copiedLink); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); }}
+                      style={{ marginTop:8, padding:"5px 14px", borderRadius:8, border:`1px solid ${linkCopied?"var(--green)":"var(--border)"}`, background:linkCopied?"var(--green-bg)":"var(--surface)", color:linkCopied?"var(--green)":"var(--text-secondary)", ...dm("11px"), cursor:"pointer", transition:"all .2s" }}
+                    >{linkCopied ? "✓ Copiado" : "📋 Copiar link"}</button>
                   </div>
                 )}
                 <button className="btn-p" style={{ width:"100%" }} onClick={() => { setSendModal(null); setSendSuccess(false); setTab("enviados"); }}>Ver en Enviados</button>
@@ -577,15 +579,99 @@ export function TestsView() {
             })()}
 
             {/* Respuestas */}
-            {detailModal.status !== "reviewed" && (
-              <button className="btn-p" style={{ width:"100%", marginBottom:10 }} onClick={() => handleMarkReviewed(detailModal.id)}>
-                ✓ Marcar como revisado
+            <div style={{ display:"flex", gap:10, marginBottom:10 }}>
+              <button className="btn-g" style={{ flex:1 }} onClick={() => { setAnswersModal(detailModal); setDetailModal(null); }}>
+                📋 Ver respuestas
               </button>
-            )}
+              {detailModal.status !== "reviewed" && (
+                <button className="btn-p" style={{ flex:1 }} onClick={() => handleMarkReviewed(detailModal.id)}>
+                  ✓ Marcar revisado
+                </button>
+              )}
+            </div>
             <button className="btn-g" style={{ width:"100%" }} onClick={() => setDetailModal(null)}>Cerrar</button>
           </div>
         </>
       )}
+
+      {/* Modal respuestas detalladas */}
+      {answersModal && (() => {
+        const testDef = TESTS_DATA.find(t => t.id === answersModal.test_id);
+        const rawAnswers = answersModal.answers as Record<string, number> | null;
+        const rangeColor = testDef?.scoring.ranges.find(r => r.level === answersModal.level)?.color ?? "var(--accent)";
+        return (
+          <>
+            <div onClick={() => setAnswersModal(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:90, backdropFilter:"blur(4px)" }} />
+            <div style={{
+              position:"fixed", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
+              background:"var(--bg-card)", borderRadius:20, padding:28,
+              width:"min(560px, 94vw)", maxHeight:"88vh", overflowY:"auto", zIndex:91,
+              boxShadow:"0 8px 28px rgba(28,25,23,0.2)", animation:"popIn .2s ease",
+            }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+                <div>
+                  <div style={{ fontFamily:"var(--font-lora)", fontSize:17, fontWeight:600, color:"var(--text-primary)" }}>
+                    Respuestas — {answersModal.test_short_name}
+                  </div>
+                  <div style={{ ...dm("12px"), color:"var(--text-muted)", marginTop:3 }}>
+                    {`${answersModal.patient.first_name} ${answersModal.patient.last_name}`} · {answersModal.completed_at ? fmtDate(answersModal.completed_at) : "—"}
+                  </div>
+                </div>
+                <button onClick={() => setAnswersModal(null)} style={{ background:"transparent", border:"none", cursor:"pointer", color:"var(--text-muted)", fontSize:16 }}>✕</button>
+              </div>
+
+              {/* Resumen score */}
+              {answersModal.score != null && (
+                <div style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 18px", background:"var(--surface)", borderRadius:12, marginBottom:20 }}>
+                  <div style={{ fontFamily:"var(--font-lora)", fontSize:32, fontWeight:700, color:rangeColor }}>{answersModal.score}</div>
+                  <div>
+                    <span className="tag" style={{ background:`${rangeColor}18`, color:rangeColor }}>{answersModal.level}</span>
+                    <div style={{ ...dm("11px"), color:"var(--text-muted)", marginTop:4 }}>de {answersModal.max_score} puntos</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Lista de preguntas y respuestas */}
+              {testDef && rawAnswers ? (
+                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                  {testDef.questions.map((q, idx) => {
+                    const answerValue = rawAnswers[String(q.id)];
+                    const answerLabel = q.options.find(o => o.value === answerValue)?.label ?? "Sin respuesta";
+                    const isHigh = answerValue !== undefined && answerValue >= Math.max(...q.options.map(o => o.value)) * 0.7;
+                    return (
+                      <div key={q.id} style={{ padding:"14px 16px", borderRadius:12, border:"1px solid var(--border-light)", background:"var(--bg-card)" }}>
+                        <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                          <span style={{ ...dm("11px"), color:"var(--text-muted)", fontWeight:600, minWidth:22, paddingTop:1 }}>{idx+1}.</span>
+                          <div style={{ flex:1 }}>
+                            <div style={{ ...dm("13px"), color:"var(--text-secondary)", marginBottom:8, lineHeight:1.5 }}>{q.text}</div>
+                            <div style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"6px 12px", borderRadius:8, background: isHigh ? `${rangeColor}14` : "var(--surface)", border:`1px solid ${isHigh ? rangeColor+"33" : "var(--border-light)"}` }}>
+                              <span style={{ ...dm("12px"), fontWeight:600, color: isHigh ? rangeColor : "var(--text-primary)" }}>{answerLabel}</span>
+                              {answerValue !== undefined && (
+                                <span style={{ ...dm("11px"), color:"var(--text-muted)" }}>({answerValue} pts)</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ ...dm("13px"), color:"var(--text-muted)", textAlign:"center", padding:"24px 0" }}>No hay respuestas registradas</div>
+              )}
+
+              <div style={{ marginTop:20, display:"flex", gap:10 }}>
+                {answersModal.status !== "reviewed" && (
+                  <button className="btn-p" style={{ flex:1 }} onClick={() => { handleMarkReviewed(answersModal.id); setAnswersModal(null); }}>
+                    ✓ Marcar revisado
+                  </button>
+                )}
+                <button className="btn-g" style={{ flex:1 }} onClick={() => setAnswersModal(null)}>Cerrar</button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
