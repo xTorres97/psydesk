@@ -80,7 +80,8 @@ function getMonthCells(year: number, month: number): (Date | null)[] {
   return cells;
 }
 function isoDateToLocal(dateStr: string, timeStr: string): string {
-  return `${dateStr}T${timeStr}:00`;
+  // Incluye offset Venezuela (UTC-4:30) para que Supabase guarde el timestamp correcto
+  return `${dateStr}T${timeStr}:00-04:30`;
 }
 
 // ─── Bloque de cita ───────────────────────────────────────────────────────────
