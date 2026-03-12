@@ -8,6 +8,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 const resend = new Resend(process.env.RESEND_API_KEY);
+const TZ = "America/Caracas";
 
 // ─── Helpers Google Calendar ──────────────────────────────────────────────────
 async function getGoogleToken(psychologistId: string): Promise<string | null> {
@@ -21,7 +22,6 @@ async function getGoogleToken(psychologistId: string): Promise<string | null> {
 
   if (!data) return null;
 
-  // Refrescar token si expiró
   const expiry = new Date(data.token_expiry);
   if (expiry <= new Date()) {
     const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -37,7 +37,10 @@ async function getGoogleToken(psychologistId: string): Promise<string | null> {
     const json = await res.json();
     if (!json.access_token) return null;
     const newExpiry = new Date(Date.now() + json.expires_in * 1000).toISOString();
-    await supabase.from("integrations").update({ access_token: json.access_token, token_expiry: newExpiry }).eq("profile_id", psychologistId).eq("provider", "calendar")
+    await supabase.from("integrations")
+      .update({ access_token: json.access_token, token_expiry: newExpiry })
+      .eq("profile_id", psychologistId)
+      .eq("provider", "calendar");
     return json.access_token;
   }
   return data.access_token;
@@ -51,8 +54,8 @@ async function createGoogleEvent(token: string, appt: any): Promise<string | nul
     body: JSON.stringify({
       summary:     `Sesión — ${appt.patientName}`,
       description: `${modalityLabel}${appt.notes ? `\n\nNota: ${appt.notes}` : ""}`,
-      start: { dateTime: appt.start_time, timeZone: "America/Caracas" },
-      end:   { dateTime: appt.end_time,   timeZone: "America/Caracas" },
+      start: { dateTime: appt.start_time, timeZone: TZ },
+      end:   { dateTime: appt.end_time,   timeZone: TZ },
       reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 30 }] },
     }),
   });
@@ -60,37 +63,80 @@ async function createGoogleEvent(token: string, appt: any): Promise<string | nul
   return json.id ?? null;
 }
 
-async function updateGoogleEvent(token: string, eventId: string, appt: any): Promise<void> {
-  const modalityLabel = appt.modality === "videollamada" ? "Videollamada" : appt.modality === "telefono" ? "Teléfono" : "Presencial";
+// Al cancelar: actualiza el título del evento con "❌ Cancelada —" en lugar de borrarlo
+async function markGoogleEventCancelled(token: string, eventId: string, patientName: string): Promise<void> {
+  // Primero obtenemos el evento actual para no perder datos
+  const getRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const existing = await getRes.json();
+  if (!existing.id) return;
+
   await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
-    method: "PUT",
+    method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      summary:     `Sesión — ${appt.patientName}`,
-      description: `${modalityLabel}${appt.notes ? `\n\nNota: ${appt.notes}` : ""}`,
-      start: { dateTime: appt.start_time, timeZone: "America/Caracas" },
-      end:   { dateTime: appt.end_time,   timeZone: "America/Caracas" },
+      summary:     `❌ Cancelada — ${patientName}`,
+      colorId:     "11", // rojo en Google Calendar
+      description: (existing.description ?? "") + "\n\n[CITA CANCELADA]",
     }),
   });
 }
 
-async function deleteGoogleEvent(token: string, eventId: string): Promise<void> {
-  await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
-    method: "DELETE",
+async function markGoogleEventDone(token: string, eventId: string, patientName: string): Promise<void> {
+  const getRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
     headers: { Authorization: `Bearer ${token}` },
+  });
+  const existing = await getRes.json();
+  if (!existing.id) return;
+  await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      summary: `✅ Completada — ${patientName}`,
+      colorId: "10", // verde en Google Calendar
+      description: (existing.description ?? "") + "\n\n[SESIÓN COMPLETADA]",
+    }),
+  });
+}
+
+async function markGoogleEventNoShow(token: string, eventId: string, patientName: string): Promise<void> {
+  const getRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const existing = await getRes.json();
+  if (!existing.id) return;
+  await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      summary: `😶 No asistió — ${patientName}`,
+      colorId: "6", // gris en Google Calendar
+      description: (existing.description ?? "") + "\n\n[PACIENTE NO ASISTIÓ]",
+    }),
+  });
+}
+
+async function updateGoogleEvent(token: string, eventId: string, appt: any): Promise<void> {
+  const modalityLabel = appt.modality === "videollamada" ? "Videollamada" : appt.modality === "telefono" ? "Teléfono" : "Presencial";
+  await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      summary:     `Sesión — ${appt.patientName}`,
+      description: `${modalityLabel}${appt.notes ? `\n\nNota: ${appt.notes}` : ""}`,
+      start: { dateTime: appt.start_time, timeZone: TZ },
+      end:   { dateTime: appt.end_time,   timeZone: TZ },
+    }),
   });
 }
 
 // ─── Email al paciente ────────────────────────────────────────────────────────
-function fmtDateTime(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleString("es-VE", { weekday:"long", day:"numeric", month:"long", year:"numeric", hour:"2-digit", minute:"2-digit", timeZone:"America/Caracas" });
-}
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("es-VE", { hour:"2-digit", minute:"2-digit", timeZone:"America/Caracas" });
+  return new Date(iso).toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
 }
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("es-VE", { weekday:"long", day:"numeric", month:"long", year:"numeric", timeZone:"America/Caracas" });
+  return new Date(iso).toLocaleDateString("es-VE", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: TZ });
 }
 
 async function sendAppointmentEmail(to: string, patientName: string, action: "created" | "updated" | "cancelled", appt: any) {
@@ -169,11 +215,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { psychologistId, patientId, patientName, patientEmail, start_time, end_time, modality, notes, type, title } = body;
 
-    // 1. Contar sesiones previas del paciente
-    const { count } = await supabase.from("appointments").select("*", { count:"exact", head:true }).eq("patient_id", patientId).eq("status", "completada");
-    const sessionNumber = (count ?? 0) + 1;
-
-    // 2. Guardar en Supabase
+    // 1. Guardar en Supabase
     const { data: appt, error } = await supabase.from("appointments").insert({
       psychologist_id: psychologistId,
       patient_id:      patientId,
@@ -188,14 +230,14 @@ export async function POST(req: NextRequest) {
 
     if (error) throw error;
 
-    // 3. Sync Google Calendar
+    // 2. Sync Google Calendar
     const token = await getGoogleToken(psychologistId);
     if (token) {
       const eventId = await createGoogleEvent(token, { ...appt, patientName, start_time, end_time });
       if (eventId) await supabase.from("appointments").update({ google_event_id: eventId }).eq("id", appt.id);
     }
 
-    // 4. Email al paciente
+    // 3. Email al paciente
     if (patientEmail) {
       await sendAppointmentEmail(patientEmail, patientName, "created", { ...appt, start_time, end_time });
     }
@@ -207,38 +249,51 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ─── PUT — Editar/Reagendar cita ──────────────────────────────────────────────
+// ─── PUT — Editar / Reagendar / Cancelar cita ─────────────────────────────────
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
     const { id, psychologistId, patientName, patientEmail, start_time, end_time, modality, notes, type, title, status, cancel_reason } = body;
 
-    // 1. Obtener cita actual para google_event_id
-    const { data: existing } = await supabase.from("appointments").select("google_event_id, status").eq("id", id).single();
+    // 1. Obtener google_event_id actual
+    const { data: existing } = await supabase
+      .from("appointments")
+      .select("google_event_id")
+      .eq("id", id)
+      .single();
+
+    const googleEventId = existing?.google_event_id ?? null;
 
     // 2. Actualizar en Supabase
-    const updateData: any = { modality, notes, type, updated_at: new Date().toISOString() };
-    if (title)         updateData.title         = title;
-    if (start_time)    updateData.start_time    = start_time;
-    if (end_time)      updateData.end_time      = end_time;
-    if (status)        updateData.status        = status;
-    if (cancel_reason) updateData.cancel_reason = cancel_reason;
+    const updateData: any = { updated_at: new Date().toISOString() };
+    if (modality !== undefined)      updateData.modality      = modality;
+    if (notes !== undefined)         updateData.notes         = notes;
+    if (type !== undefined)          updateData.type          = type;
+    if (title !== undefined)         updateData.title         = title;
+    if (start_time !== undefined)    updateData.start_time    = start_time;
+    if (end_time !== undefined)      updateData.end_time      = end_time;
+    if (status !== undefined)        updateData.status        = status;
+    if (cancel_reason !== undefined) updateData.cancel_reason = cancel_reason;
 
     const { error } = await supabase.from("appointments").update(updateData).eq("id", id);
     if (error) throw error;
 
     // 3. Sync Google Calendar
     const token = await getGoogleToken(psychologistId);
-    if (token && existing?.google_event_id) {
+    if (token && googleEventId) {
       if (status === "cancelada") {
-        await deleteGoogleEvent(token, existing.google_event_id);
-      } else {
-        await updateGoogleEvent(token, existing.google_event_id, { patientName, start_time, end_time, modality, notes });
+        await markGoogleEventCancelled(token, googleEventId, patientName);
+      } else if (status === "completada") {
+        await markGoogleEventDone(token, googleEventId, patientName);
+      } else if (status === "no_asistio") {
+        await markGoogleEventNoShow(token, googleEventId, patientName);
+      } else if (start_time || end_time || modality || notes !== undefined) {
+        await updateGoogleEvent(token, googleEventId, { patientName, start_time, end_time, modality, notes });
       }
     }
 
-    // 4. Email al paciente
-    if (patientEmail) {
+    // 4. Email al paciente solo en cancelación o reagendamiento
+    if (patientEmail && (status === "cancelada" || (start_time && status !== "completada" && status !== "no_asistio"))) {
       const action = status === "cancelada" ? "cancelled" : "updated";
       await sendAppointmentEmail(patientEmail, patientName, action, { start_time, end_time, modality, cancel_reason });
     }

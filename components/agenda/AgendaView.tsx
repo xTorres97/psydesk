@@ -88,21 +88,61 @@ function isoDateToLocal(dateStr: string, timeStr: string): string {
 
 // ─── Bloque de cita ───────────────────────────────────────────────────────────
 function ApptBlock({ appt, onClick }: { appt: Appointment; onClick: () => void }) {
-  const hhmm = toHHMM(appt.start_time);                              // "HH:MM" limpio en VE
+  const hhmm = toHHMM(appt.start_time);
   const top  = ((toMin(hhmm) - toMin("08:00")) / 60) * HOUR_H;
   const dur  = (new Date(appt.end_time).getTime() - new Date(appt.start_time).getTime()) / 60000;
   const h    = Math.max((dur / 60) * HOUR_H - 4, 28);
   const color = appt.patient ? colorForName(`${appt.patient.first_name}${appt.patient.last_name}`) : "#8B7355";
   const patientName = appt.patient ? `${appt.patient.first_name} ${appt.patient.last_name}` : appt.title;
 
+  const isCancelled = appt.status === "cancelada";
+  const isDone      = appt.status === "completada";
+  const isNoShow    = appt.status === "no_asistio";
+
+  const blockBg = isCancelled
+    ? `repeating-linear-gradient(135deg, ${color}08 0px, ${color}08 4px, ${color}14 4px, ${color}14 8px)`
+    : isNoShow
+    ? `repeating-linear-gradient(135deg, #A8A29E0D 0px, #A8A29E0D 4px, #A8A29E18 4px, #A8A29E18 8px)`
+    : isDone ? `${color}22` : `${color}18`;
+
+  const blockBorderColor = isCancelled ? "#B5594A" : isDone ? "#5C8A6E" : isNoShow ? "#A8A29E" : color;
+  const textColor        = isCancelled ? "#B5594A" : isDone ? "#5C8A6E" : isNoShow ? "#A8A29E" : color;
+
   return (
     <div className="appt" onClick={onClick}
-      style={{ top, height: h, background: `${color}18`, borderLeftColor: color, opacity: appt.status === "cancelada" ? 0.45 : 1, cursor: "pointer" }}>
-      <div style={{ ...dm("11px"), fontWeight: 600, color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      style={{
+        top, height: h,
+        background: blockBg,
+        borderLeftColor: blockBorderColor,
+        cursor: "pointer",
+        position: "absolute",
+      }}>
+      {isDone && (
+        <div style={{ position:"absolute", top:4, right:5, width:16, height:16, borderRadius:"50%", background:"#5C8A6E", display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <span style={{ color:"#fff", fontSize:9, fontWeight:700 }}>✓</span>
+        </div>
+      )}
+      {isNoShow && (
+        <div style={{ position:"absolute", top:4, right:5, width:16, height:16, borderRadius:"50%", background:"#A8A29E", display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <span style={{ color:"#fff", fontSize:9, fontWeight:700 }}>–</span>
+        </div>
+      )}
+      {isCancelled && (
+        <div style={{ position:"absolute", top:4, right:5, width:16, height:16, borderRadius:"50%", background:"#B5594A", display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <span style={{ color:"#fff", fontSize:9, fontWeight:700 }}>✕</span>
+        </div>
+      )}
+      <div style={{
+        ...dm("11px"), fontWeight: 600,
+        color: textColor,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        textDecoration: isCancelled ? "line-through" : "none",
+        opacity: isNoShow ? 0.75 : 1,
+      }}>
         {fmtTime(appt.start_time)} {patientName}
       </div>
       {h > 48 && (
-        <div style={{ ...dm("10px"), color: "var(--text-muted)", marginTop: 2 }}>
+        <div style={{ ...dm("10px"), color: "var(--text-muted)", marginTop: 2, opacity: (isCancelled || isNoShow) ? 0.5 : 1 }}>
           {MODALITY_CFG[appt.modality].icon} {TYPE_CFG[appt.type]}
         </div>
       )}
@@ -619,9 +659,18 @@ export function AgendaView() {
                       {dayAppts.slice(0,2).map((a,ai) => {
                         const pName = a.patient ? a.patient.first_name : a.title.split("—")[1]?.trim() ?? a.title;
                         const color = a.patient ? colorForName(`${a.patient.first_name}${a.patient.last_name}`) : "#8B7355";
+                        const isCancelled = a.status === "cancelada";
+                        const isDone      = a.status === "completada";
+                        const isNoShow    = a.status === "no_asistio";
+                        const miniColor   = isCancelled ? "#B5594A" : isDone ? "#5C8A6E" : isNoShow ? "#A8A29E" : color;
+                        const miniBg      = isNoShow
+                          ? `repeating-linear-gradient(135deg, #A8A29E0D 0px, #A8A29E0D 3px, #A8A29E18 3px, #A8A29E18 6px)`
+                          : isCancelled ? `${color}0D` : `${color}18`;
                         return (
                           <div key={ai} onClick={e => { e.stopPropagation(); setDetailAppt(a); }}
-                            style={{ padding:"2px 5px", borderRadius:4, background:`${color}18`, borderLeft:`2px solid ${color}`, ...dm("9px"), color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", cursor:"pointer" }}>
+                            style={{ padding:"2px 5px", borderRadius:4, background: miniBg, borderLeft:`2px solid ${miniColor}`, ...dm("9px"), color: miniColor, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", cursor:"pointer", textDecoration: isCancelled ? "line-through" : "none", opacity: isNoShow ? 0.75 : isCancelled ? 0.7 : 1, display:"flex", alignItems:"center", gap:3 }}>
+                            {isDone && <span style={{ fontSize:8, fontWeight:700 }}>✓</span>}
+                            {isNoShow && <span style={{ fontSize:8 }}>–</span>}
                             {fmtTime(a.start_time)} {pName}
                           </div>
                         );
