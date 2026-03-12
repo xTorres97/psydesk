@@ -3,33 +3,45 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSidebarStore } from "@/stores/useSidebarStore";
-import { Sparkles } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import {
+  LayoutDashboard, CalendarDays, Users, FolderOpen,
+  ClipboardList, BarChart2, Sparkles, Settings, Brain,
+} from "lucide-react";
 
 const NAV_ITEMS = [
-  { icon: "⊞", label: "Dashboard",   href: "/"            },
-  { icon: "📅", label: "Agenda",      href: "/agenda"      },
-  { icon: "👥", label: "Pacientes",   href: "/pacientes"   },
-  { icon: "📂", label: "Expedientes", href: "/expedientes" },
-  { icon: "🧪", label: "Tests",       href: "/tests"       },
-  { icon: "📊", label: "Reportes",    href: "/reportes"    },
-  { href:"/asistente", icon:<Sparkles size={18}/>, label:"Asistente IA", badge:"✦" }
+  { icon: <LayoutDashboard size={17} />, label: "Dashboard",   href: "/"            },
+  { icon: <CalendarDays    size={17} />, label: "Agenda",      href: "/agenda"      },
+  { icon: <Users           size={17} />, label: "Pacientes",   href: "/pacientes"   },
+  { icon: <FolderOpen      size={17} />, label: "Expedientes", href: "/expedientes" },
+  { icon: <ClipboardList   size={17} />, label: "Tests",       href: "/tests"       },
+  { icon: <BarChart2       size={17} />, label: "Reportes",    href: "/reportes"    },
+  { icon: <Sparkles        size={17} />, label: "Asistente IA",href: "/asistente", badge: true },
 ];
 
 export function Sidebar() {
   const { collapsed, toggle } = useSidebarStore();
+  const { profile } = useAuth();
   const pathname = usePathname();
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
-  // En móvil el sidebar siempre muestra texto completo
   const showLabel = !collapsed;
+
+  // Datos del profesional desde el perfil real
+  const titulo    = profile?.sexo === "femenino" ? "Dra." : profile?.sexo === "masculino" ? "Dr." : "";
+  const firstName = profile?.full_name?.split(" ")[0] ?? "";
+  const specialty = profile?.specialty ?? "Psicólogo/a clínico/a";
+  const initials  = profile?.full_name
+    ? profile.full_name.split(" ").map((n: string) => n[0]).slice(0, 2).join("").toUpperCase()
+    : "?";
 
   const navItemStyle = (active: boolean): React.CSSProperties => ({
     display: "flex", alignItems: "center",
-    gap: 12, padding: "10px 14px", borderRadius: 10,
+    gap: 10, padding: "9px 12px", borderRadius: 10,
     cursor: "pointer", transition: "all .18s",
-    fontFamily: "var(--font-dm-sans)", fontSize: 14,
+    fontFamily: "var(--font-dm-sans)", fontSize: 13,
     border: "1px solid transparent",
     justifyContent: collapsed ? "center" : "flex-start",
     background: active ? "#3B3330" : "transparent",
@@ -46,10 +58,7 @@ export function Sidebar() {
           min-width: ${collapsed ? 64 : 220}px;
         }
         @media (max-width: 768px) {
-          .sidebar-aside {
-            width: 220px !important;
-            min-width: 220px !important;
-          }
+          .sidebar-aside { width: 220px !important; min-width: 220px !important; }
         }
       `}</style>
 
@@ -68,30 +77,32 @@ export function Sidebar() {
       >
         {/* Logo */}
         <div style={{ padding: "4px 8px 20px", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg,#C4A882,#8B7355)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>🧠</div>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg,#C4A882,#8B7355)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#FAF7F2" }}>
+            <Brain size={17} />
+          </div>
           {showLabel && <span style={{ fontFamily: "var(--font-lora)", fontSize: 18, fontWeight: 600, color: "#EDE8E0", letterSpacing: "-0.3px" }}>PsyDesk</span>}
         </div>
 
         {/* Nav */}
         <nav style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
           {NAV_ITEMS.map(n => (
-            <Link
-              key={n.href}
-              href={n.href}
-              style={{ textDecoration: "none" }}
-              onClick={() => {
-                // En móvil, cierra el drawer al navegar
-                if (window.innerWidth <= 768) toggle();
-              }}
-            >
+            <Link key={n.href} href={n.href} style={{ textDecoration: "none" }}
+              onClick={() => { if (window.innerWidth <= 768) toggle(); }}>
               <div
                 style={navItemStyle(isActive(n.href))}
                 onMouseEnter={e => { if (!isActive(n.href)) { (e.currentTarget as HTMLDivElement).style.background = "#292524"; (e.currentTarget as HTMLDivElement).style.color = "#E7E5E4"; } }}
                 onMouseLeave={e => { if (!isActive(n.href)) { (e.currentTarget as HTMLDivElement).style.background = "transparent"; (e.currentTarget as HTMLDivElement).style.color = "#A8A29E"; } }}
                 title={collapsed ? n.label : ""}
               >
-                <span style={{ fontSize: 16, flexShrink: 0 }}>{n.icon}</span>
-                {showLabel && n.label}
+                <span style={{ flexShrink: 0, display: "flex" }}>{n.icon}</span>
+                {showLabel && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
+                    {n.label}
+                    {n.badge && (
+                      <span style={{ fontSize: 9, background: "linear-gradient(135deg,#C4A882,#8B7355)", color: "#FAF7F2", padding: "1px 5px", borderRadius: 4, fontWeight: 600, letterSpacing: "0.3px" }}>IA</span>
+                    )}
+                  </span>
+                )}
               </div>
             </Link>
           ))}
@@ -99,27 +110,35 @@ export function Sidebar() {
 
         {/* Footer */}
         <div style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-          <Link
-            href="/configuracion"
-            style={{ textDecoration: "none" }}
-            onClick={() => { if (window.innerWidth <= 768) toggle(); }}
-          >
+          <Link href="/configuracion" style={{ textDecoration: "none" }}
+            onClick={() => { if (window.innerWidth <= 768) toggle(); }}>
             <div
               style={navItemStyle(pathname.startsWith("/configuracion"))}
               onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = "#292524"; (e.currentTarget as HTMLDivElement).style.color = "#E7E5E4"; }}
               onMouseLeave={e => { if (!pathname.startsWith("/configuracion")) { (e.currentTarget as HTMLDivElement).style.background = "transparent"; (e.currentTarget as HTMLDivElement).style.color = "#A8A29E"; } }}
             >
-              <span style={{ fontSize: 16 }}>⚙️</span>
+              <span style={{ flexShrink: 0, display: "flex" }}><Settings size={17} /></span>
               {showLabel && "Configuración"}
             </div>
           </Link>
 
+          {/* Perfil del profesional */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 8px 0" }}>
-            <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,#C4A882,#8B7355)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FAF7F2", fontSize: 12, fontWeight: 600, fontFamily: "var(--font-dm-sans)", flexShrink: 0 }}>DL</div>
+            <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,#C4A882,#8B7355)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FAF7F2", fontSize: 12, fontWeight: 600, fontFamily: "var(--font-dm-sans)", flexShrink: 0, overflow: "hidden" }}>
+              {profile?.avatar_url
+                ? <img src={profile.avatar_url} alt="" style={{ width: 34, height: 34, objectFit: "cover" }} />
+                : initials
+              }
+            </div>
             {showLabel && (
-              <div>
-                <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 13, color: "#EDE8E0", fontWeight: 500 }}>Dra. Laura</div>
-                <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 11, color: "#7A6A58" }}>Psicóloga clínica</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 13, color: "#EDE8E0", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {titulo && <span style={{ color: "#7A6A58", marginRight: 3 }}>{titulo}</span>}
+                  {firstName || "—"}
+                </div>
+                <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 11, color: "#7A6A58", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {specialty}
+                </div>
               </div>
             )}
           </div>
