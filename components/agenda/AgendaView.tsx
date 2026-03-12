@@ -69,13 +69,15 @@ function fmtDateLabel(iso: string): string {
 function getWeekDates(base: Date): Date[] {
   const d = new Date(base); const day = d.getDay();
   d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+  d.setHours(12, 0, 0, 0); // mediodía para evitar cambio de día por timezone
   return Array.from({ length: 7 }, (_, i) => { const nd = new Date(d); nd.setDate(d.getDate() + i); return nd; });
 }
 function getMonthCells(year: number, month: number): (Date | null)[] {
   const first = new Date(year, month, 1); const last = new Date(year, month + 1, 0);
   const startDay = first.getDay() === 0 ? 6 : first.getDay() - 1;
   const cells: (Date | null)[] = Array(startDay).fill(null);
-  for (let d = 1; d <= last.getDate(); d++) cells.push(new Date(year, month, d));
+  // Usar mediodía (12:00) para evitar que cambios de timezone muevan el día
+  for (let d = 1; d <= last.getDate(); d++) cells.push(new Date(year, month, d, 12, 0, 0));
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
 }
