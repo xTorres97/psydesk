@@ -1,35 +1,78 @@
+// src/components/dashboard/SessionList.tsx
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 type DayFilter = "Hoy" | "Mañana";
 
-const PATIENTS = [
-  { id: 1, name: "María González",  initials: "MG", age: 34, session: "Hoy 10:00",    status: "confirmed" as const, tag: "Ansiedad",  color: "#8B7355", sessions: 12, next: "Hoy"    as DayFilter },
-  { id: 2, name: "Carlos Mendoza",  initials: "CM", age: 28, session: "Hoy 11:30",    status: "pending"   as const, tag: "Depresión", color: "#4A7BA7", sessions: 7,  next: "Hoy"    as DayFilter },
-  { id: 3, name: "Ana Reyes",       initials: "AR", age: 41, session: "Hoy 14:00",    status: "confirmed" as const, tag: "Trauma",    color: "#5C8A6E", sessions: 23, next: "Hoy"    as DayFilter },
-  { id: 4, name: "Joaquín Torres",  initials: "JT", age: 19, session: "Mañana 9:00",  status: "confirmed" as const, tag: "TDAH",      color: "#C47B2B", sessions: 4,  next: "Mañana" as DayFilter },
-  { id: 5, name: "Sofía Vargas",    initials: "SV", age: 52, session: "Mañana 15:30", status: "new"       as const, tag: "Estrés",    color: "#B5594A", sessions: 1,  next: "Mañana" as DayFilter },
-];
+interface SessionAppt {
+  id: string;
+  patientName: string;
+  initials: string;
+  color: string;
+  tag: string;
+  sessionNum: number;
+  time: string;
+  status: "programada" | "completada" | "cancelada" | "no_asistio";
+  modality: string;
+  patientId: string;
+  isNew: boolean;
+}
 
-const WEEK_DAYS = ["L", "M", "M", "J", "V", "S", "D"];
-const TODAY_IDX = 2;
-const CALENDAR_EVENTS: Record<number, { time: string; name: string; color: string }[]> = {
-  0: [{ time: "9:00",  name: "Lucía Paredes",  color: "#5C8A6E" }],
-  1: [{ time: "10:00", name: "María González", color: "#8B7355" }, { time: "11:30", name: "Carlos Mendoza", color: "#4A7BA7" }],
-  2: [{ time: "10:00", name: "María González", color: "#8B7355" }, { time: "11:30", name: "Carlos Mendoza", color: "#4A7BA7" }, { time: "14:00", name: "Ana Reyes", color: "#5C8A6E" }],
-  3: [{ time: "9:00",  name: "Pedro Salas",    color: "#C47B2B" }, { time: "16:00", name: "Laura Díaz",    color: "#B5594A" }],
-  4: [{ time: "10:30", name: "Emilio Ruiz",    color: "#4A7BA7" }, { time: "13:00", name: "Claudia Mora",  color: "#8B7355" }],
-  5: [], 6: [],
+interface WeekDay {
+  label: string;
+  num: number;
+  iso: string;
+  events: { color: string }[];
+  isToday: boolean;
+}
+
+interface TodayEvent {
+  name: string;
+  time: string;
+  color: string;
+}
+
+interface SessionListProps {
+  todayAppts: SessionAppt[];
+  tomorrowAppts: SessionAppt[];
+  weekDays: WeekDay[];
+  todayEvents: TodayEvent[];
+  weekLabel: string;
+  onNewAppointment: () => void;
+  allWeekEvents: Record<string, TodayEvent[]>;
+}
+
+const AVATAR_COLORS = ["#8B7355","#4A7BA7","#5C8A6E","#C47B2B","#B5594A","#7B6EA8","#A85E6A","#6A9E8A"];
+const STATUS_LABEL: Record<string, string> = {
+  programada: "Programada", completada: "Completada", cancelada: "Cancelada", no_asistio: "No asistió",
+};
+const STATUS_COLOR: Record<string, string> = {
+  programada: "var(--amber)", completada: "var(--green)", cancelada: "var(--red)", no_asistio: "var(--text-muted)",
+};
+const MODALITY_ICON: Record<string, string> = {
+  presencial: "🏢", videollamada: "📹", telefono: "📞",
 };
 
-export function SessionList() {
+export function SessionList({ todayAppts, tomorrowAppts, weekDays, todayEvents, weekLabel, onNewAppointment, allWeekEvents }: SessionListProps) {
   const [dayFilter, setDayFilter] = useState<DayFilter>("Hoy");
+  const [selectedDayISO, setSelectedDayISO] = useState<string | null>(null);
+  const router = useRouter();
+
+  const appts = dayFilter === "Hoy" ? todayAppts : tomorrowAppts;
+
+  // Día seleccionado en el strip — por defecto hoy
+  const todayDay = weekDays.find(d => d.isToday);
+  const activeISO = selectedDayISO ?? todayDay?.iso ?? null;
+  const activeEvents = activeISO ? (allWeekEvents[activeISO] ?? []) : todayEvents;
+  const activeDayLabel = weekDays.find(d => d.iso === activeISO);
+  const activeDayNum   = activeDayLabel ? `${activeDayLabel.num} ${activeDayLabel.label}` : "hoy";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
-      {/* SESSIONS */}
+      {/* SESIONES */}
       <div className="card" style={{ padding: "20px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <h2 className="sec-t" style={{ margin: 0 }}>Sesiones</h2>
@@ -39,47 +82,64 @@ export function SessionList() {
             ))}
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {PATIENTS.filter((p) => p.next === dayFilter).map((p) => (
-            <div key={p.id} className="p-row" style={{ flexWrap: "wrap", gap: 8 }}>
-              <div className="avatar" style={{ background: `${p.color}18`, color: p.color }}>{p.initials}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{p.name}</span>
-                  <span className="tag" style={{ background: `${p.color}14`, color: p.color }}>{p.tag}</span>
-                  {p.status === "new" && <span className="tag" style={{ background: "var(--accent-bg)", color: "var(--accent)" }}>Nueva</span>}
-                </div>
-                <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                  Sesión #{p.sessions} · {p.session.split(" ")[1]}
-                  <span style={{ marginLeft: 6, display: "inline-flex", alignItems: "center", gap: 3 }}>
-                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: p.status === "confirmed" ? "var(--green)" : p.status === "pending" ? "var(--amber)" : "var(--blue)", display: "inline-block" }} />
-                    {p.status === "confirmed" ? "Confirmada" : p.status === "pending" ? "Pendiente" : "Primera vez"}
-                  </span>
-                </div>
-              </div>
-              <button className="btn-g" style={{ padding: "5px 10px", fontSize: 11, alignSelf: "center" }}>Ver</button>
+
+        {appts.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text-muted)", fontFamily: "var(--font-dm-sans)", fontSize: 13 }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>📅</div>
+            Sin citas {dayFilter === "Hoy" ? "hoy" : "mañana"}
+            <div style={{ marginTop: 12 }}>
+              <button className="btn-p" style={{ fontSize: 12, padding: "6px 14px" }} onClick={onNewAppointment}>+ Agendar cita</button>
             </div>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {appts.map((p) => (
+              <div key={p.id} className="p-row" style={{ flexWrap: "wrap", gap: 8 }}>
+                <div className="avatar" style={{ background: `${p.color}18`, color: p.color }}>{p.initials}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{p.patientName}</span>
+                    {p.tag && <span className="tag" style={{ background: `${p.color}14`, color: p.color }}>{p.tag}</span>}
+                    {p.isNew && <span className="tag" style={{ background: "var(--accent-bg)", color: "var(--accent)" }}>Nueva</span>}
+                  </div>
+                  <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                    {MODALITY_ICON[p.modality] ?? "🏢"} Sesión #{p.sessionNum} · {p.time}
+                    <span style={{ marginLeft: 6, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      <span style={{ width: 5, height: 5, borderRadius: "50%", background: STATUS_COLOR[p.status] ?? "var(--amber)", display: "inline-block" }} />
+                      {STATUS_LABEL[p.status] ?? p.status}
+                    </span>
+                  </div>
+                </div>
+                <button className="btn-g" style={{ padding: "5px 10px", fontSize: 11, alignSelf: "center" }}
+                  onClick={() => router.push(`/expedientes?patientId=${p.patientId}`)}>
+                  Ver
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* WEEKLY STRIP */}
+      {/* SEMANA EN CURSO */}
       <div className="card" style={{ padding: "20px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <h2 className="sec-t" style={{ margin: 0 }}>Semana en curso</h2>
-          <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 12, color: "var(--text-muted)" }}>Ene 5–11</span>
+          <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 12, color: "var(--text-muted)" }}>{weekLabel}</span>
         </div>
         <div style={{ display: "flex", gap: 4, marginBottom: 18 }}>
-          {WEEK_DAYS.map((d, i) => {
-            const evs = CALENDAR_EVENTS[i] ?? [];
-            const isToday = i === TODAY_IDX;
+          {weekDays.map((d, i) => {
+            const isSelected = d.iso === activeISO;
             return (
-              <div key={i} className={`cal-d${isToday ? " today" : ""}`} style={{ flex: 1 }}>
-                <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 10, fontWeight: 500, color: isToday ? "#FAF7F2" : "var(--text-muted)" }}>{d}</span>
-                <span style={{ fontFamily: "var(--font-lora)", fontSize: 14, fontWeight: 600, color: isToday ? "#FAF7F2" : "var(--text-primary)" }}>{5 + i}</span>
+              <div key={i}
+                className={`cal-d${d.isToday ? " today" : ""}`}
+                style={{ flex: 1, cursor: "pointer", outline: isSelected && !d.isToday ? "2px solid var(--accent)" : "none", outlineOffset: 2, borderRadius: 8, transition: "all .15s" }}
+                onClick={() => setSelectedDayISO(d.iso)}
+              >
+                <span style={{ fontFamily: "var(--font-dm-sans)", fontSize: 10, fontWeight: 500, color: d.isToday ? "#FAF7F2" : "var(--text-muted)" }}>{d.label}</span>
+                <span style={{ fontFamily: "var(--font-lora)", fontSize: 14, fontWeight: 600, color: d.isToday ? "#FAF7F2" : "var(--text-primary)" }}>{d.num}</span>
                 <div style={{ display: "flex", gap: 2, minHeight: 5 }}>
-                  {evs.slice(0, 3).map((e, j) => (
-                    <span key={j} style={{ width: 4, height: 4, borderRadius: "50%", background: isToday ? "rgba(250,247,242,.6)" : e.color }} />
+                  {d.events.slice(0, 3).map((e, j) => (
+                    <span key={j} style={{ width: 4, height: 4, borderRadius: "50%", background: d.isToday ? "rgba(250,247,242,.6)" : e.color }} />
                   ))}
                 </div>
               </div>
@@ -87,16 +147,22 @@ export function SessionList() {
           })}
         </div>
         <div style={{ borderTop: "1px solid var(--border-light)", paddingTop: 14 }}>
-          <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>Próximas — hoy</div>
-          {(CALENDAR_EVENTS[TODAY_IDX] ?? []).map((ev, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <div style={{ width: 3, height: 32, borderRadius: 2, background: ev.color, flexShrink: 0 }} />
-              <div>
-                <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 13, color: "var(--text-primary)", fontWeight: 500 }}>{ev.name}</div>
-                <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 12, color: "var(--text-muted)" }}>{ev.time} · 50 min</div>
+          <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
+            Citas — {activeDayLabel?.isToday ? "hoy" : activeDayNum}
+          </div>
+          {activeEvents.length === 0 ? (
+            <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 12, color: "var(--text-muted)", textAlign: "center", padding: "8px 0" }}>Sin sesiones este día</div>
+          ) : (
+            activeEvents.map((ev, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <div style={{ width: 3, height: 32, borderRadius: 2, background: ev.color, flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 13, color: "var(--text-primary)", fontWeight: 500 }}>{ev.name}</div>
+                  <div style={{ fontFamily: "var(--font-dm-sans)", fontSize: 12, color: "var(--text-muted)" }}>{ev.time} · 50 min</div>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
 
