@@ -42,6 +42,7 @@ const INTEGRATION_NAMES: Record<string, string> = {
 };
 
 const MAX_AVATAR_HISTORY = 5;
+const MAX_ACTIVE_SESSIONS = 2; // máximo de sesiones activas guardadas
 
 // ── Comprime una imagen usando canvas ────────────────────────────────────────
 async function compressImage(file: File, maxSize = 400, quality = 0.85): Promise<Blob> {
@@ -190,7 +191,7 @@ export function ConfiguracionView() {
   };
   const [sessionLogs,     setSessionLogs]     = useState<SessionLog[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
-  const [autoLogoutMin,   setAutoLogoutMin]   = useState(30); // minutos
+  const [autoLogoutMin,   setAutoLogoutMin]   = useState(30);
   const [secPrefs, setSecPrefs] = useState({
     auto_logout: true,
     session_log: true,
@@ -241,27 +242,85 @@ export function ConfiguracionView() {
   }, [profile?.id]);
 
   // ── Registrar sesión actual al cargar ─────────────────────────────────────
+  // Lógica: si ya existe una sesión con el mismo browser+os+device, actualiza
+  // su timestamp y la marca como actual en lugar de crear una nueva.
+  // Mantiene un máximo de MAX_ACTIVE_SESSIONS (2) sesiones en total.
   useEffect(() => {
     if (!profile?.id) return;
+
     const ua      = navigator.userAgent;
     const browser = ua.includes("Chrome") ? "Chrome" : ua.includes("Firefox") ? "Firefox" : ua.includes("Safari") ? "Safari" : "Otro";
     const os      = ua.includes("Windows") ? "Windows" : ua.includes("Mac") ? "macOS" : ua.includes("Linux") ? "Linux" : ua.includes("Android") ? "Android" : ua.includes("iPhone") ? "iOS" : "Otro";
     const device  = /Mobi|Android/i.test(ua) ? "Móvil" : "Escritorio";
 
-    // Marcar sesiones previas como no actuales y registrar la actual
-    supabase.from("session_logs")
-      .update({ is_current: false })
-      .eq("profile_id", profile.id)
-      .eq("is_current", true)
-      .then(() => {
-        supabase.from("session_logs").insert({
-          profile_id:   profile.id,
+    async function registerSession() {
+      // 1. Obtener todas las sesiones existentes
+      const { data: existing } = await supabase
+        .from("session_logs")
+        .select("*")
+        .eq("profile_id", profile!.id)
+        .order("logged_in_at", { ascending: false });
+
+      const all = existing ?? [];
+
+      // 2. Buscar si ya hay una sesión con el mismo fingerprint (mismo dispositivo)
+      const sameDevice = all.find(
+        s => s.browser === browser && s.os === os && s.device === device
+      );
+
+      if (sameDevice) {
+        // Mismo ordenador — actualizar timestamp y marcar como actual
+        await supabase
+          .from("session_logs")
+          .update({ is_current: true, logged_in_at: new Date().toISOString() })
+          .eq("id", sameDevice.id);
+
+        // Desmarcar las demás como no actuales
+        const otherIds = all.filter(s => s.id !== sameDevice.id).map(s => s.id);
+        if (otherIds.length > 0) {
+          await supabase
+            .from("session_logs")
+            .update({ is_current: false })
+            .in("id", otherIds);
+        }
+      } else {
+        // Dispositivo nuevo — desmarcar todas como no actuales
+        if (all.length > 0) {
+          await supabase
+            .from("session_logs")
+            .update({ is_current: false })
+            .eq("profile_id", profile!.id);
+        }
+
+        // Insertar nueva sesión
+        await supabase.from("session_logs").insert({
+          profile_id:   profile!.id,
           device, browser, os,
           location:     "—",
           is_current:   true,
           logged_in_at: new Date().toISOString(),
-        }).then(() => loadSessions());
-      });
+        });
+
+        // 3. Si ahora hay más de MAX_ACTIVE_SESSIONS, eliminar las más antiguas
+        // (excepto la actual recién creada)
+        const { data: afterInsert } = await supabase
+          .from("session_logs")
+          .select("id, is_current")
+          .eq("profile_id", profile!.id)
+          .order("logged_in_at", { ascending: false });
+
+        const allAfter = afterInsert ?? [];
+        if (allAfter.length > MAX_ACTIVE_SESSIONS) {
+          // Mantener las MAX_ACTIVE_SESSIONS más recientes, borrar el resto
+          const toDelete = allAfter.slice(MAX_ACTIVE_SESSIONS).map(s => s.id);
+          await supabase.from("session_logs").delete().in("id", toDelete);
+        }
+      }
+
+      loadSessions();
+    }
+
+    registerSession();
   }, [profile?.id]);
 
   const loadSessions = async () => {
@@ -272,7 +331,7 @@ export function ConfiguracionView() {
       .select("*")
       .eq("profile_id", profile.id)
       .order("logged_in_at", { ascending: false })
-      .limit(10);
+      .limit(MAX_ACTIVE_SESSIONS);
     setSessionLogs(data ?? []);
     setLoadingSessions(false);
   };
@@ -391,15 +450,13 @@ export function ConfiguracionView() {
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !profile?.id) return;
-    e.target.value = ""; // reset para permitir subir el mismo archivo de nuevo
+    e.target.value = "";
     setUploadingAvatar(true);
 
     try {
-      // 1. Comprimir imagen
       const compressed = await compressImage(file);
       const path       = `avatars/${profile.id}.jpg`;
 
-      // 2. Si ya hay avatar actual, guardarlo en historial antes de reemplazar
       const currentHistory = [...avatarHistory];
       if (profile.avatar_url) {
         const newHistory = [profile.avatar_url, ...currentHistory.filter(u => u !== profile.avatar_url)]
@@ -408,14 +465,12 @@ export function ConfiguracionView() {
         await supabase.from("profiles").update({ avatar_history: newHistory }).eq("id", profile.id);
       }
 
-      // 3. Subir imagen comprimida
       const { error: uploadError } = await supabase.storage
         .from("profiles")
         .upload(path, compressed, { upsert: true, contentType: "image/jpeg" });
 
       if (uploadError) { showToast("Error al subir la foto.", false); setUploadingAvatar(false); return; }
 
-      // 4. Actualizar avatar_url con cache-bust para forzar recarga
       const { data } = supabase.storage.from("profiles").getPublicUrl(path);
       const urlWithBust = `${data.publicUrl}?t=${Date.now()}`;
       await supabase.from("profiles").update({ avatar_url: urlWithBust }).eq("id", profile.id);
@@ -434,7 +489,6 @@ export function ConfiguracionView() {
     if (!profile?.id) return;
     setUploadingAvatar(true);
 
-    // Mover el actual al historial, quitar el seleccionado del historial
     const newHistory = [
       ...(profile.avatar_url ? [profile.avatar_url] : []),
       ...avatarHistory.filter(u => u !== url),
@@ -556,7 +610,6 @@ export function ConfiguracionView() {
         />
       )}
 
-      {/* Input oculto para subir archivo */}
       <input ref={fileInputRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleAvatarChange} />
 
       {/* Menú lateral */}
@@ -814,7 +867,6 @@ export function ConfiguracionView() {
                   </button>
                 </div>
 
-                {/* 2FA — Próximamente */}
                 <Row>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -826,7 +878,6 @@ export function ConfiguracionView() {
                   <Toggle checked={false} onChange={() => showToast("2FA estará disponible próximamente.", false)} color="var(--green)" />
                 </Row>
 
-                {/* Cierre automático — funcional */}
                 <Row>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, color:"var(--text-primary)" }}>Cierre de sesión automático</div>
@@ -846,21 +897,17 @@ export function ConfiguracionView() {
                     </select>
                   </div>
                 )}
-
-                {/* Registro de accesos — funcional */}
-                <Row>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, color:"var(--text-primary)" }}>Registro de accesos</div>
-                    <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)" }}>Guardar log de todos los inicios de sesión</div>
-                  </div>
-                  <Toggle checked={secPrefs.session_log} onChange={() => setSecPrefs(p => ({ ...p, session_log: !p.session_log }))} color="var(--green)" />
-                </Row>
               </CardSection>
 
-              {/* Sesiones activas — tiempo real */}
+              {/* ── Sesiones activas — máximo 2, sin duplicados por dispositivo ── */}
               <CardSection>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-                  <div style={{ fontFamily:"var(--font-lora)", fontSize:15, fontWeight:600, color:"var(--text-primary)" }}>Sesiones activas</div>
+                  <div>
+                    <div style={{ fontFamily:"var(--font-lora)", fontSize:15, fontWeight:600, color:"var(--text-primary)" }}>Sesiones activas</div>
+                    <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)", marginTop:2 }}>
+                      Se muestran hasta {MAX_ACTIVE_SESSIONS} dispositivos recientes
+                    </div>
+                  </div>
                   <button className="btn-g" style={{ fontSize:11, padding:"5px 10px" }} onClick={loadSessions} disabled={loadingSessions}>
                     {loadingSessions ? "..." : "↻ Actualizar"}
                   </button>
@@ -902,37 +949,6 @@ export function ConfiguracionView() {
                   })
                 )}
               </CardSection>
-
-              {/* Registro de accesos recientes */}
-              {secPrefs.session_log && (
-                <CardSection>
-                  <SecTitle>Historial de accesos recientes</SecTitle>
-                  {sessionLogs.length === 0 ? (
-                    <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-muted)" }}>Sin historial aún.</div>
-                  ) : (
-                    sessionLogs.slice(0, 8).map((s) => {
-                      const when    = new Date(s.logged_in_at);
-                      const dateStr = when.toLocaleDateString("es-MX", { day:"2-digit", month:"short", year:"numeric" });
-                      const timeStr = when.toLocaleTimeString("es-MX", { hour:"2-digit", minute:"2-digit" });
-                      const icon    = s.device === "Móvil" ? "📱" : "💻";
-                      return (
-                        <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:"1px solid var(--border-light)" }}>
-                          <span style={{ fontSize:16, flexShrink:0 }}>{icon}</span>
-                          <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:12, color:"var(--text-primary)", fontWeight:500 }}>
-                              {s.browser ?? "Navegador"} en {s.os ?? "—"}
-                            </div>
-                            <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)" }}>{dateStr} · {timeStr}</div>
-                          </div>
-                          {s.is_current && (
-                            <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:10, color:"var(--green)", background:"var(--green-bg)", padding:"2px 8px", borderRadius:10, fontWeight:600, whiteSpace:"nowrap" }}>Sesión actual</span>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </CardSection>
-              )}
             </>
           )}
 

@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { ExpedienteTestsTab } from "@/components/expedientes/ExpedienteTestsTab";
+import { ExpedienteArchivosTab } from "@/components/expedientes/ExpedienteArchivosTab";
 
 type Section = "resumen" | "historia" | "notas" | "tests" | "archivos" | "tratamiento";
 
@@ -1204,31 +1206,22 @@ export function ExpedientesView() {
                 </div>
               )}
 
-              {/* TESTS — hardcoded por ahora */}
-              {activeSection==="tests" && (
-                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:300, textAlign:"center", padding:48 }}>
-                  <span style={{ fontSize:40, opacity:0.3, marginBottom:12 }}>🧪</span>
-                  <div style={{ fontFamily:"var(--font-lora)", fontSize:18, fontWeight:600, color:"var(--text-primary)", marginBottom:8 }}>Tests psicológicos</div>
-                  <div style={{ ...dm("13px"), color:"var(--text-muted)", maxWidth:280, lineHeight:1.6 }}>Esta sección estará disponible cuando implementemos el módulo de Tests.</div>
-                  <div style={{ marginTop:16, display:"inline-flex", alignItems:"center", gap:6, padding:"6px 14px", borderRadius:20, background:"var(--amber-bg)", border:"1px solid var(--amber)33" }}>
-                    <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--amber)", display:"block" }} />
-                    <span style={{ ...dm("12px"), color:"var(--amber)", fontWeight:500 }}>Próximamente</span>
-                  </div>
-                </div>
+              {activeSection==="tests" && p && (
+              <ExpedienteTestsTab
+                patientId={p.id}
+                patient={{ id: p.id, first_name: p.first_name, last_name: p.last_name, email: p.email }}
+                psychologistId={userId}
+              />
               )}
 
               {/* ARCHIVOS */}
-              {activeSection==="archivos" && (
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
-                  <div className="card" style={{ padding:"16px", borderRadius:14, border:"2px dashed var(--border)", background:"transparent", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:8, cursor:"pointer", minHeight:130 }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background="var(--surface)"; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background="transparent"; }}
-                  >
-                    <span style={{ fontSize:24 }}>📎</span>
-                    <span style={{ ...dm("12px"), color:"var(--text-muted)" }}>Subir archivo</span>
-                  </div>
-                </div>
-              )}
+             {activeSection==="archivos" && p && (
+              <ExpedienteArchivosTab
+                patientId={p.id}
+                psychologistId={userId}
+                patientName={pName}
+              />
+             )}
 
               {/* TRATAMIENTO */}
               {activeSection==="tratamiento" && (
