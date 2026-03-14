@@ -4,7 +4,7 @@ import { useThemeStore } from "@/stores/useThemeStore";
 import { useSidebarStore } from "@/stores/useSidebarStore";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
-import { Bell, Moon, Sun, Menu, LogOut } from "lucide-react";
+import { Bell, Moon, Sun, Menu, LogOut, Megaphone } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 function getGreeting() {
@@ -20,7 +20,6 @@ function getFormattedDate() {
   });
 }
 
-// Mapeo de valores de la columna `sexo` → título visible
 function getTitulo(sexo: string | null | undefined): string {
   switch (sexo) {
     case "masculino": return "Dr.";
@@ -47,8 +46,6 @@ export function Topbar() {
 
   const titulo    = getTitulo((profile as any)?.sexo);
   const firstName = profile?.full_name?.split(" ")[0] ?? "";
-
-  // Saludo: "Dra. Laura", "Psic. Carlos", o solo "Laura"
   const displayName = firstName
     ? titulo ? `${titulo} ${firstName}` : firstName
     : "Doctor/a";
@@ -63,6 +60,14 @@ export function Topbar() {
     router.push("/login");
   };
 
+  const iconBtnStyle: React.CSSProperties = {
+    width: 38, height: 38,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    borderRadius: 10, background: "var(--surface)",
+    border: "1px solid var(--border)", color: "var(--text-secondary)",
+    cursor: "pointer", transition: "all .15s",
+  };
+
   return (
     <>
       <style>{`
@@ -71,14 +76,16 @@ export function Topbar() {
           .topbar-hamburger { display: flex; }
           .topbar-header { padding: 0 16px !important; }
         }
+        .topbar-icon-btn:hover { background: var(--surface-2) !important; color: var(--text-primary) !important; }
         .topbar-avatar-menu {
           position: absolute; top: calc(100% + 8px); right: 0;
           background: var(--bg-card); border: 1px solid var(--border-light);
           border-radius: 14px; padding: 6px;
           box-shadow: 0 8px 24px rgba(28,25,23,.12);
           min-width: 200px; z-index: 50;
-          animation: su .15s ease;
+          animation: menuIn .15s ease;
         }
+        @keyframes menuIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
         .topbar-menu-item {
           display: flex; align-items: center; gap: 10px;
           padding: 9px 12px; border-radius: 9px; cursor: pointer;
@@ -94,13 +101,8 @@ export function Topbar() {
         className="topbar-header flex items-center justify-between shrink-0 sticky top-0 z-10"
         style={{ height:70, background:"var(--bg-primary)", borderBottom:"1px solid var(--border-light)", zIndex:5, padding:"0 40px" }}
       >
+        {/* Izquierda: hamburger + saludo */}
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <button className="topbar-hamburger items-center justify-center rounded-xl transition-all"
-            onClick={toggleSidebar}
-            style={{ width:38, height:38, background:"var(--surface)", border:"1px solid var(--border)", color:"var(--text-secondary)", cursor:"pointer" }}>
-            <Menu size={16} />
-          </button>
-
           <div>
             <div style={{ fontFamily:"var(--font-lora)", fontSize:20, fontWeight:600, color:"var(--text-primary)", letterSpacing:"-0.3px" }}>
               {getGreeting()}, {displayName} ✨
@@ -111,25 +113,42 @@ export function Topbar() {
           </div>
         </div>
 
+        {/* Derecha: acciones */}
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+
           {/* Notificaciones */}
-          <button style={{ position:"relative", width:38, height:38, display:"flex", alignItems:"center", justifyContent:"center", borderRadius:10, background:"var(--surface)", border:"1px solid var(--border)", color:"var(--text-secondary)", cursor:"pointer" }}>
+          <button className="topbar-icon-btn" style={{ ...iconBtnStyle, position:"relative" }}>
             <Bell size={16} />
             <span style={{ position:"absolute", top:8, right:8, width:7, height:7, borderRadius:"50%", background:"var(--amber)", border:"2px solid var(--bg-primary)" }} />
           </button>
 
+          {/* Feedback beta — megáfono */}
+          <button
+            className="topbar-icon-btn"
+            onClick={() => router.push("/feedback")}
+            title="Enviar feedback"
+            style={iconBtnStyle}
+          >
+            <Megaphone size={16} />
+          </button>
+
           {/* Tema */}
           {mounted && (
-            <button onClick={toggleTheme}
-              style={{ width:38, height:38, display:"flex", alignItems:"center", justifyContent:"center", borderRadius:10, background:"var(--surface)", border:"1px solid var(--border)", color:"var(--text-secondary)", cursor:"pointer" }}>
+            <button
+              className="topbar-icon-btn"
+              onClick={toggleTheme}
+              style={iconBtnStyle}
+            >
               {dark ? <Sun size={16} /> : <Moon size={16} />}
             </button>
           )}
 
           {/* Avatar + menú desplegable */}
           <div style={{ position:"relative" }}>
-            <button onClick={() => setShowMenu(o => !o)}
-              style={{ width:38, height:38, borderRadius:10, background:"var(--accent-bg)", border:"1px solid var(--accent-light)", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:600, color:"var(--accent)", overflow:"hidden" }}>
+            <button
+              onClick={() => setShowMenu(o => !o)}
+              style={{ width:38, height:38, borderRadius:10, background:"var(--accent-bg)", border:"1px solid var(--accent-light)", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:600, color:"var(--accent)", overflow:"hidden" }}
+            >
               {profile?.avatar_url
                 ? <img src={profile.avatar_url} alt="" style={{ width:38, height:38, objectFit:"cover" }} />
                 : initials
@@ -149,11 +168,14 @@ export function Topbar() {
                       {profile?.email ?? ""}
                     </div>
                   </div>
-
                   <button className="topbar-menu-item" onClick={() => { setShowMenu(false); router.push("/configuracion"); }}>
                     ⚙️ Configuración
                   </button>
-
+                  {(profile as any)?.email === "jsetorres1997@gmail.com" && (
+                    <button className="topbar-menu-item" onClick={() => { setShowMenu(false); router.push("/admin/feedback"); }}>
+                      🛠 Panel de feedback
+                    </button>
+                  )}
                   <button className="topbar-menu-item danger" onClick={handleSignOut}>
                     <LogOut size={14} /> Cerrar sesión
                   </button>
