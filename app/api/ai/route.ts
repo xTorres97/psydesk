@@ -15,6 +15,14 @@ function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("es-VE", { weekday:"short", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit", timeZone: TZ });
 }
 
+// Idéntico al de Topbar, ConfiguracionView y AiPanel
+function getTitulo(sexo: string | null | undefined): string {
+  if (sexo === "masculino") return "Dr.";
+  if (sexo === "femenino")  return "Dra.";
+  if (sexo === "psic")      return "Psic.";
+  return "";
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { messages, psychologistId } = await req.json();
@@ -24,9 +32,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Fetch datos reales en paralelo ────────────────────────────────────────
-    const todayISO     = toISO(new Date());
-    const tomorrowISO  = toISO(new Date(Date.now() + 86400000));
-    const weekFromNow  = new Date(Date.now() + 7 * 86400000).toISOString();
+    const weekFromNow = new Date(Date.now() + 7 * 86400000).toISOString();
 
     const [
       { data: profile },
@@ -35,19 +41,16 @@ export async function POST(req: NextRequest) {
       { data: recentNotes },
       { data: pendingTests },
     ] = await Promise.all([
-      // Perfil del psicólogo
       supabase.from("profiles")
         .select("full_name, specialty, sexo, email, clinic_name")
         .eq("id", psychologistId)
         .single(),
 
-      // Todos los pacientes
       supabase.from("patients")
         .select("id, first_name, last_name, birth_date, diagnosis, status, notes, created_at")
         .eq("psychologist_id", psychologistId)
         .order("first_name"),
 
-      // Citas próximas (hoy + 7 días)
       supabase.from("appointments")
         .select("start_time, end_time, status, modality, type, notes, patient:patients(first_name, last_name)")
         .eq("psychologist_id", psychologistId)
@@ -57,7 +60,6 @@ export async function POST(req: NextRequest) {
         .order("start_time")
         .limit(20),
 
-      // Notas de sesión recientes (últimas 2 semanas)
       supabase.from("session_notes")
         .select("content, created_at, patient:patients(first_name, last_name)")
         .eq("psychologist_id", psychologistId)
@@ -65,7 +67,6 @@ export async function POST(req: NextRequest) {
         .order("created_at", { ascending: false })
         .limit(10),
 
-      // Tests pendientes de revisar
       supabase.from("test_submissions")
         .select("test_short_name, status, completed_at, score, max_score, level, patient:patients(first_name, last_name)")
         .eq("psychologist_id", psychologistId)
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
       if (a.patient_id) countByPatient[a.patient_id] = (countByPatient[a.patient_id] ?? 0) + 1;
     });
 
-    // ── Construir contexto de pacientes ──────────────────────────────────────
+    // ── Contextos ─────────────────────────────────────────────────────────────
     const patientsContext = (patients ?? []).map((p: any) => ({
       nombre: `${p.first_name} ${p.last_name}`,
       diagnostico: p.diagnosis ?? "Sin diagnóstico registrado",
@@ -95,7 +96,6 @@ export async function POST(req: NextRequest) {
       desde: p.created_at ? new Date(p.created_at).toLocaleDateString("es-VE", { timeZone: TZ }) : "—",
     }));
 
-    // ── Construir contexto de citas próximas ─────────────────────────────────
     const apptsContext = (upcomingAppts ?? []).map((a: any) => {
       const p = Array.isArray(a.patient) ? a.patient[0] : a.patient;
       return {
@@ -107,7 +107,6 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // ── Construir contexto de notas recientes ─────────────────────────────────
     const notesContext = (recentNotes ?? []).map((n: any) => {
       const p = Array.isArray(n.patient) ? n.patient[0] : n.patient;
       return {
@@ -117,7 +116,6 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // ── Construir contexto de tests ───────────────────────────────────────────
     const testsContext = (pendingTests ?? []).map((t: any) => {
       const p = Array.isArray(t.patient) ? t.patient[0] : t.patient;
       return {
@@ -128,16 +126,18 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // ── Perfil del profesional ────────────────────────────────────────────────
-    const titulo    = profile?.sexo === "femenino" ? "Dra." : profile?.sexo === "masculino" ? "Dr." : "";
+    // ── Título del profesional ────────────────────────────────────────────────
+    const titulo    = getTitulo(profile?.sexo);
     const nombre    = profile?.full_name ?? "Profesional";
     const specialty = profile?.specialty ?? "Psicología clínica";
     const clinica   = profile?.clinic_name ?? "";
 
-    // ── System prompt con datos reales ───────────────────────────────────────
+    const nombreCorto = nombre.split(" ")[0];
+
+    // ── System prompt ─────────────────────────────────────────────────────────
     const SYSTEM_PROMPT = `Eres PsyDesk AI, el asistente inteligente integrado en PsyDesk, una plataforma de gestión clínica para psicólogos independientes.
 
-Estás asistiendo a ${titulo} ${nombre}${clinica ? `, del consultorio "${clinica}"` : ""}, especialista en ${specialty}.
+Estás asistiendo a ${titulo ? `${titulo} ${nombre}` : nombre}${clinica ? `, del consultorio "${clinica}"` : ""}, especialista en ${specialty}.
 
 ## Tus capacidades principales:
 1. **Chat clínico**: Responder preguntas sobre pacientes, orientación en técnicas terapéuticas, psicología clínica y gestión del consultorio.
@@ -161,7 +161,7 @@ ${new Date().toLocaleString("es-VE", { weekday:"long", day:"numeric", month:"lon
 
 ## Instrucciones de comportamiento:
 - Responde siempre en español, con tono profesional pero cálido.
-- Dirígete al profesional como "${titulo} ${nombre.split(" ")[0]}" cuando sea natural.
+- Dirígete al profesional como "${titulo ? `${titulo} ${nombreCorto}` : nombreCorto}" cuando sea natural.
 - Para documentos clínicos, usa formato estructurado con secciones claras en markdown.
 - Cuando redactes notas o informes, indica claramente que son borradores para revisión.
 - Si te piden buscar un paciente, busca por nombre, diagnóstico, estado o cualquier dato relevante en la base de datos provista.

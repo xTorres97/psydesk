@@ -38,6 +38,14 @@ const MODE_LABELS: Record<Mode, { icon: string; label: string; hint: string }> =
   busqueda:  { icon: "🔍", label: "Búsqueda",  hint: "Buscar y resumir pacientes"       },
 };
 
+// Idéntico al de Topbar y ConfiguracionView
+function getTitulo(sexo: string | null | undefined): string {
+  if (sexo === "masculino") return "Dr.";
+  if (sexo === "femenino")  return "Dra.";
+  if (sexo === "psic")      return "Psic.";
+  return "";
+}
+
 function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === "user";
 
@@ -110,9 +118,11 @@ export function AiPanel({ mode = "floating", onClose }: AiPanelProps) {
   const inputRef  = useRef<HTMLTextAreaElement>(null);
   const recognRef = useRef<SpeechRecognition | null>(null);
 
-  const titulo      = profile?.sexo === "femenino" ? "Dra." : profile?.sexo === "masculino" ? "Dr." : "";
+  const titulo      = getTitulo((profile as any)?.sexo);
   const firstName   = profile?.full_name?.split(" ")[0] ?? "";
-  const displayName = firstName ? `${titulo} ${firstName}`.trim() : "Doctor/a";
+  const displayName = firstName
+    ? titulo ? `${titulo} ${firstName}` : firstName
+    : "Doctor/a";
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages, loading]);
 

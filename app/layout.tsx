@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Lora, DM_Sans } from "next/font/google";
 import { PreferencesProvider } from "@/context/PreferencesContext";
 import "./globals.css";
-import { AiFloatingButton } from "@/components/ai/AiPanel";
 import { AuthProvider } from "@/context/AuthContext";
 
 const lora = Lora({
@@ -31,10 +30,9 @@ export default function RootLayout({
     <html lang="es" suppressHydrationWarning>
       <body className={`${lora.variable} ${dmSans.variable} antialiased`}>
         <AuthProvider>
-        <PreferencesProvider>
-          {children}
-        </PreferencesProvider>
-        <AiFloatingButton />
+          <PreferencesProvider>
+            {children}
+          </PreferencesProvider>
         </AuthProvider>
       </body>
     </html>

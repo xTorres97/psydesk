@@ -4,8 +4,8 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { useSidebarStore } from "@/stores/useSidebarStore";
 import { useAutoLogout } from "@/hooks/useAutoLogout";
+import { AiFloatingButton } from "@/components/ai/AiPanel";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-
 
 export default function DashboardLayout({
   children,
@@ -72,6 +72,9 @@ export default function DashboardLayout({
           </div>
         </main>
       </div>
+
+      {/* ✦ Botón flotante de IA — solo visible en el panel del profesional */}
+      <AiFloatingButton />
 
       <style>{`
         /* PC y tablet — comportamiento normal */
