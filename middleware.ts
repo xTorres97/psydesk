@@ -29,19 +29,14 @@ export async function middleware(request: NextRequest) {
   const publicRoutes = ["/login", "/register", "/auth/callback", "/auth/confirm", "/cuestionario"];
   const isPublic = publicRoutes.some(r => pathname.startsWith(r));
 
-  // Si no hay sesión y está intentando acceder a una ruta protegida → redirigir a login
+  // Si no hay sesión y está intentando acceder al dashboard → redirigir a login
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
   // Si hay sesión y está en login/register → redirigir al dashboard
   if (user && (pathname === "/login" || pathname === "/register")) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
-  // Si hay sesión y accede a la raíz → redirigir al dashboard
-  if (user && pathname === "/") {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   return supabaseResponse;
