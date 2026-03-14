@@ -277,10 +277,10 @@ export default function DashboardPage() {
   useEffect(() => { load(); }, [load]);
 
   // ── Acciones rápidas ──────────────────────────────────────────────────────
-  function handleNewPatient()     { router.push("/pacientes"); }
-  function handleSendTest()       { router.push("/tests"); }
-  function handleNewNote()        { router.push("/expedientes"); }
-  function handleNewAppointment() { router.push("/agenda"); }
+  function handleNewPatient()     { router.push("/dashboard/pacientes"); }
+  function handleSendTest()       { router.push("/dashboard/tests"); }
+  function handleNewNote()        { router.push("/dashboard/expedientes"); }
+  function handleNewAppointment() { router.push("/dashboard/agenda"); }
 
   return (
     <div style={{ maxWidth: 1280, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>

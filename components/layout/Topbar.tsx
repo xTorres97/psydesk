@@ -44,8 +44,8 @@ export function Topbar() {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark, mounted]);
 
-  const titulo    = getTitulo((profile as any)?.sexo);
-  const firstName = profile?.full_name?.split(" ")[0] ?? "";
+  const titulo      = getTitulo((profile as any)?.sexo);
+  const firstName   = profile?.full_name?.split(" ")[0] ?? "";
   const displayName = firstName
     ? titulo ? `${titulo} ${firstName}` : firstName
     : "Doctor/a";
@@ -103,6 +103,13 @@ export function Topbar() {
       >
         {/* Izquierda: hamburger + saludo */}
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <button
+            className="topbar-hamburger topbar-icon-btn items-center justify-center rounded-xl transition-all"
+            onClick={toggleSidebar}
+            style={iconBtnStyle}
+          >
+            <Menu size={16} />
+          </button>
           <div>
             <div style={{ fontFamily:"var(--font-lora)", fontSize:20, fontWeight:600, color:"var(--text-primary)", letterSpacing:"-0.3px" }}>
               {getGreeting()}, {displayName} ✨
@@ -168,7 +175,7 @@ export function Topbar() {
                       {profile?.email ?? ""}
                     </div>
                   </div>
-                  <button className="topbar-menu-item" onClick={() => { setShowMenu(false); router.push("/configuracion"); }}>
+                  <button className="topbar-menu-item" onClick={() => { setShowMenu(false); router.push("/dashboard/configuracion"); }}>
                     ⚙️ Configuración
                   </button>
                   {(profile as any)?.email === "jsetorres1997@gmail.com" && (

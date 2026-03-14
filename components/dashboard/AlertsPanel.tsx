@@ -79,7 +79,7 @@ export function AlertsPanel({ alerts, progress, onNewPatient, onSendTest, onNewN
           ))
         )}
         <button className="btn-g" style={{ width: "100%", marginTop: 8 }}
-          onClick={() => router.push("/tests")}>
+          onClick={() => router.push("/dashboard/tests")}>
           Ver todos los avisos
         </button>
       </div>
@@ -106,7 +106,7 @@ export function AlertsPanel({ alerts, progress, onNewPatient, onSendTest, onNewN
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <h2 className="sec-t" style={{ margin: 0 }}>Evolución reciente</h2>
           <button className="btn-g" style={{ padding: "4px 10px", fontSize: 11 }}
-            onClick={() => router.push("/reportes")}>
+            onClick={() => router.push("/dashboard/reportes")}>
             Ver más
           </button>
         </div>

@@ -111,7 +111,7 @@ export function SessionList({ todayAppts, tomorrowAppts, weekDays, todayEvents, 
                   </div>
                 </div>
                 <button className="btn-g" style={{ padding: "5px 10px", fontSize: 11, alignSelf: "center" }}
-                  onClick={() => router.push(`/expedientes?patientId=${p.patientId}`)}>
+                  onClick={() => router.push(`/dashboard/expedientes?patientId=${p.patientId}`)}>
                   Ver
                 </button>
               </div>

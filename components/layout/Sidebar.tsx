@@ -10,14 +10,23 @@ import {
 } from "lucide-react";
 
 const NAV_ITEMS = [
-  { icon: <LayoutDashboard size={17} />, label: "Dashboard",   href: "/"            },
-  { icon: <CalendarDays    size={17} />, label: "Agenda",      href: "/agenda"      },
-  { icon: <Users           size={17} />, label: "Pacientes",   href: "/pacientes"   },
-  { icon: <FolderOpen      size={17} />, label: "Expedientes", href: "/expedientes" },
-  { icon: <ClipboardList   size={17} />, label: "Tests",       href: "/tests"       },
-  { icon: <BarChart2       size={17} />, label: "Reportes",    href: "/reportes"    },
-  { icon: <Sparkles        size={17} />, label: "Asistente IA",href: "/asistente", badge: true },
+  { icon: <LayoutDashboard size={17} />, label: "Dashboard",    href: "/dashboard"                },
+  { icon: <CalendarDays    size={17} />, label: "Agenda",       href: "/dashboard/agenda"         },
+  { icon: <Users           size={17} />, label: "Pacientes",    href: "/dashboard/pacientes"      },
+  { icon: <FolderOpen      size={17} />, label: "Expedientes",  href: "/dashboard/expedientes"    },
+  { icon: <ClipboardList   size={17} />, label: "Tests",        href: "/dashboard/tests"          },
+  { icon: <BarChart2       size={17} />, label: "Reportes",     href: "/dashboard/reportes"       },
+  { icon: <Sparkles        size={17} />, label: "Asistente IA", href: "/dashboard/asistente", badge: true },
 ];
+
+function getTitulo(sexo: string | null | undefined): string {
+  switch (sexo) {
+    case "masculino": return "Dr.";
+    case "femenino":  return "Dra.";
+    case "psic":      return "Psic.";
+    default:          return "";
+  }
+}
 
 export function Sidebar() {
   const { collapsed, toggle } = useSidebarStore();
@@ -25,12 +34,11 @@ export function Sidebar() {
   const pathname = usePathname();
 
   const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+    href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(href);
 
   const showLabel = !collapsed;
 
-  // Datos del profesional desde el perfil real
-  const titulo    = profile?.sexo === "femenino" ? "Dra." : profile?.sexo === "masculino" ? "Dr." : "";
+  const titulo    = getTitulo((profile as any)?.sexo);
   const firstName = profile?.full_name?.split(" ")[0] ?? "";
   const specialty = profile?.specialty ?? "Psicólogo/a clínico/a";
   const initials  = profile?.full_name
@@ -110,12 +118,12 @@ export function Sidebar() {
 
         {/* Footer */}
         <div style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-          <Link href="/configuracion" style={{ textDecoration: "none" }}
+          <Link href="/dashboard/configuracion" style={{ textDecoration: "none" }}
             onClick={() => { if (window.innerWidth <= 768) toggle(); }}>
             <div
-              style={navItemStyle(pathname.startsWith("/configuracion"))}
+              style={navItemStyle(pathname.startsWith("/dashboard/configuracion"))}
               onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = "#292524"; (e.currentTarget as HTMLDivElement).style.color = "#E7E5E4"; }}
-              onMouseLeave={e => { if (!pathname.startsWith("/configuracion")) { (e.currentTarget as HTMLDivElement).style.background = "transparent"; (e.currentTarget as HTMLDivElement).style.color = "#A8A29E"; } }}
+              onMouseLeave={e => { if (!pathname.startsWith("/dashboard/configuracion")) { (e.currentTarget as HTMLDivElement).style.background = "transparent"; (e.currentTarget as HTMLDivElement).style.color = "#A8A29E"; } }}
             >
               <span style={{ flexShrink: 0, display: "flex" }}><Settings size={17} /></span>
               {showLabel && "Configuración"}

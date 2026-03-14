@@ -866,7 +866,7 @@ export function PacientesView() {
           </div>
         )}
         <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:20 }}>
-          <button className="btn-p" onClick={() => router.push(`/expedientes?patientId=${selected.id}`)} style={{ width:"100%" }}>📂 Ver expediente completo</button>
+          <button className="btn-p" onClick={() => router.push(`/dashboard/expedientes?patientId=${selected.id}`)} style={{ width:"100%" }}>📂 Ver expediente completo</button>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
             <button
               className="btn-g"
