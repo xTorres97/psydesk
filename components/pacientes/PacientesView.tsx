@@ -3,10 +3,13 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { TESTS_DATA } from "@/components/tests/tests-data";
 
 type PatientStatus = "activo" | "lista_espera" | "alta" | "archivado";
 type Modality = "presencial" | "online" | "mixto";
 type Gender = "masculino" | "femenino" | "no_binario" | "prefiero_no_decir";
+type AppModality = "presencial" | "videollamada" | "telefono";
+type AppType = "sesion" | "evaluacion" | "seguimiento" | "primera_vez" | "otro";
 
 interface Patient {
   id: string; name: string; initials: string; color: string;
@@ -15,6 +18,8 @@ interface Patient {
   phone: string; email: string; since: string;
   pendingTest: boolean; pendingNote: boolean;
 }
+
+interface CustomTest { id: string; name: string; short_name: string; questions: any[]; }
 
 const AVATAR_COLORS = [
   "#8B7355","#4A7BA7","#5C8A6E","#C47B2B","#B5594A",
@@ -26,13 +31,24 @@ const DIAGNOSTICOS = [
   "Fobia","Pareja","Burnout","Duelo","Otro","No evaluado",
 ];
 
-
-
 const STATUS_META: Record<PatientStatus, { label: string; color: string; bg: string }> = {
   activo:       { label:"Activo",       color:"var(--green)", bg:"var(--green-bg)" },
   lista_espera: { label:"Lista espera", color:"var(--amber)", bg:"var(--amber-bg)" },
   alta:         { label:"Alta",         color:"var(--blue)",  bg:"var(--blue-bg)"  },
   archivado:    { label:"Archivado",    color:"var(--text-muted)", bg:"var(--surface)" },
+};
+
+const APP_MODALITY_CFG: Record<AppModality, { label: string; icon: string }> = {
+  presencial:   { label: "Presencial",   icon: "🏥" },
+  videollamada: { label: "Videollamada", icon: "🎥" },
+  telefono:     { label: "Teléfono",     icon: "📞" },
+};
+const APP_TYPE_CFG: Record<AppType, string> = {
+  sesion:      "Sesión regular",
+  evaluacion:  "Evaluación",
+  seguimiento: "Seguimiento",
+  primera_vez: "Primera vez",
+  otro:        "Otro",
 };
 
 const dm = (size: string): React.CSSProperties => ({ fontFamily: "var(--font-dm-sans)", fontSize: size });
@@ -54,6 +70,369 @@ function calcAge(birthDate: string): number {
   if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
   return age;
 }
+function toISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function isoDateToLocal(dateStr: string, timeStr: string): string {
+  return `${dateStr}T${timeStr}:00`;
+}
+
+// ─── Modal Agendar Cita ───────────────────────────────────────────────────────
+function AgendarCitaModal({ patient, onClose, onCreated }: {
+  patient: Patient;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const supabase = createClient();
+  const today = toISO(new Date());
+
+  const [date, setDate]           = useState(today);
+  const [startTime, setStartTime] = useState("09:00");
+  const [endTime, setEndTime]     = useState("09:50");
+  const [modality, setModality]   = useState<AppModality>("presencial");
+  const [type, setType]           = useState<AppType>("sesion");
+  const [notes, setNotes]         = useState("");
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState("");
+  const [success, setSuccess]     = useState(false);
+
+  async function handleSave() {
+    if (!date || !startTime || !endTime) { setError("Completa fecha y horario"); return; }
+    setSaving(true); setError("");
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+
+      const res = await fetch("/api/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patientId:      patient.id,
+          patientName:    patient.name,
+          patientEmail:   patient.email || null,
+          psychologistId: user.id,
+          start_time:     isoDateToLocal(date, startTime),
+          end_time:       isoDateToLocal(date, endTime),
+          modality, type,
+          notes: notes || null,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || "Error al agendar");
+      }
+      setSuccess(true);
+      onCreated();
+    } catch (e: any) {
+      setError(e.message ?? "Error al guardar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "9px 12px", borderRadius: 10,
+    border: "1px solid var(--border)", background: "var(--surface)",
+    color: "var(--text-primary)", fontFamily: "var(--font-dm-sans)",
+    fontSize: 13, outline: "none", boxSizing: "border-box",
+  };
+  const labelStyle: React.CSSProperties = {
+    ...dm("11px"), color: "var(--text-muted)", marginBottom: 6,
+    display: "block", textTransform: "uppercase", letterSpacing: "0.4px", fontWeight: 600,
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:120, backdropFilter:"blur(4px)" }} />
+      <div style={{ position:"fixed", top:"50%", left:"50%", transform:"translate(-50%,-50%)", background:"var(--bg-card)", borderRadius:20, padding:28, width:"min(480px,94vw)", maxHeight:"90vh", overflowY:"auto", zIndex:121, boxShadow:"0 8px 32px rgba(28,25,23,0.18)", animation:"agendarIn .2s ease" }}>
+        <style>{`@keyframes agendarIn{from{transform:translate(-50%,-48%) scale(.95);opacity:0}to{transform:translate(-50%,-50%) scale(1);opacity:1}}`}</style>
+
+        {!success ? (
+          <>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:22 }}>
+              <div>
+                <div style={{ fontFamily:"var(--font-lora)", fontSize:18, fontWeight:600, color:"var(--text-primary)" }}>Nueva cita</div>
+                <div style={{ ...dm("12px"), color:"var(--text-muted)", marginTop:3 }}>Completa los datos para agendar</div>
+              </div>
+              <button onClick={onClose} style={{ background:"transparent", border:"none", cursor:"pointer", color:"var(--text-muted)", fontSize:18 }}>✕</button>
+            </div>
+
+            {/* Paciente fijo */}
+            <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderRadius:12, background:"var(--surface)", border:"1px solid var(--border-light)", marginBottom:20 }}>
+              <div style={{ width:38, height:38, borderRadius:"50%", background:`${patient.color}20`, color:patient.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, fontFamily:"var(--font-dm-sans)", flexShrink:0 }}>
+                {patient.initials}
+              </div>
+              <div>
+                <div style={{ ...dm("13px"), fontWeight:600, color:"var(--text-primary)" }}>{patient.name}</div>
+                <div style={{ ...dm("11px"), color:"var(--text-muted)" }}>{patient.age} años · {patient.tag}</div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom:16 }}>
+              <label style={labelStyle}>Fecha</label>
+              <input type="date" value={date} min={today} onChange={e => setDate(e.target.value)} style={{ ...inputStyle, colorScheme:"dark" }} />
+            </div>
+
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+              <div>
+                <label style={labelStyle}>Hora inicio</label>
+                <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Hora fin</label>
+                <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} style={inputStyle} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom:16 }}>
+              <label style={labelStyle}>Modalidad</label>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+                {(["presencial","videollamada","telefono"] as AppModality[]).map(m => (
+                  <button key={m} onClick={() => setModality(m)}
+                    style={{ padding:"10px 8px", borderRadius:10, border:`1px solid ${modality===m?"var(--accent)":"var(--border)"}`, background:modality===m?"var(--accent-bg)":"var(--surface)", cursor:"pointer", textAlign:"center", transition:"all .15s" }}>
+                    <div style={{ fontSize:18, marginBottom:4 }}>{APP_MODALITY_CFG[m].icon}</div>
+                    <div style={{ ...dm("11px"), color:modality===m?"var(--accent)":"var(--text-secondary)", fontWeight:modality===m?600:400 }}>{APP_MODALITY_CFG[m].label}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom:16 }}>
+              <label style={labelStyle}>Tipo de sesión</label>
+              <select value={type} onChange={e => setType(e.target.value as AppType)} style={inputStyle}>
+                {Object.entries(APP_TYPE_CFG).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+
+            <div style={{ marginBottom:20 }}>
+              <label style={labelStyle}>Nota interna <span style={{ fontWeight:400, textTransform:"none", letterSpacing:0 }}>(opcional)</span></label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+                placeholder="Ej: Traer resultados de evaluación..."
+                style={{ ...inputStyle, resize:"vertical", lineHeight:1.5 }} />
+            </div>
+
+            {error && <div style={{ padding:"9px 14px", borderRadius:10, background:"var(--red-bg)", ...dm("12px"), color:"var(--red)", marginBottom:14 }}>⚠ {error}</div>}
+
+            <div style={{ display:"flex", gap:10 }}>
+              <button className="btn-g" style={{ flex:1 }} onClick={onClose}>Cancelar</button>
+              <button className="btn-p" style={{ flex:1, opacity:saving?0.6:1 }} onClick={handleSave} disabled={saving}>
+                {saving ? "Guardando..." : "📅 Agendar cita"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={{ textAlign:"center", padding:"12px 0" }}>
+            <div style={{ width:64, height:64, borderRadius:"50%", background:"var(--green-bg)", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 18px", fontSize:28 }}>✅</div>
+            <div style={{ fontFamily:"var(--font-lora)", fontSize:18, fontWeight:600, color:"var(--text-primary)", marginBottom:8 }}>¡Cita agendada!</div>
+            <div style={{ ...dm("13px"), color:"var(--text-muted)", marginBottom:24 }}>
+              La cita con <strong>{patient.name}</strong> quedó registrada correctamente.
+            </div>
+            <button className="btn-p" style={{ width:"100%" }} onClick={onClose}>Cerrar</button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── Modal Enviar Test ────────────────────────────────────────────────────────
+function EnviarTestModal({ patient, onClose }: {
+  patient: Patient;
+  onClose: () => void;
+}) {
+  const supabase = createClient();
+
+  const [customTests, setCustomTests]   = useState<CustomTest[]>([]);
+  const [loadingTests, setLoadingTests] = useState(true);
+  const [tab, setTab]                   = useState<"estandar" | "personalizados">("estandar");
+  const [selectedTest, setSelectedTest] = useState<{
+    id: string; name: string; isCustom: boolean;
+    shortName: string; questionCount: number; icon?: string;
+  } | null>(null);
+  const [sending, setSending]           = useState(false);
+  const [error, setError]               = useState("");
+  const [success, setSuccess]           = useState(false);
+  const [copiedLink, setCopiedLink]     = useState("");
+  const [linkCopied, setLinkCopied]     = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("custom_tests")
+        .select("id, name, short_name, questions")
+        .eq("psychologist_id", user.id)
+        .order("created_at", { ascending: false });
+      setCustomTests((data ?? []) as CustomTest[]);
+      setLoadingTests(false);
+    })();
+  }, []);
+
+  async function handleSend() {
+    if (!selectedTest) return;
+    setSending(true); setError("");
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+
+      const body = selectedTest.isCustom
+        ? { patientId: patient.id, patientEmail: patient.email || null, patientName: patient.name, psychologistId: user.id, customTestId: selectedTest.id, customTestShortName: selectedTest.shortName }
+        : { patientId: patient.id, patientEmail: patient.email || null, patientName: patient.name, psychologistId: user.id, testId: selectedTest.id, testShortName: selectedTest.shortName };
+
+      const res = await fetch("/api/send-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Error al enviar");
+
+      const appUrl = window.location.origin;
+      setCopiedLink(`${appUrl}/cuestionario/${json.token}`);
+      setSuccess(true);
+    } catch (e: any) {
+      setError(e.message ?? "Error al enviar");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1, padding: "8px 0", border: "none", cursor: "pointer",
+    borderRadius: 8, fontFamily: "var(--font-dm-sans)", fontSize: 12, fontWeight: 500,
+    background: active ? "var(--bg-card)" : "transparent",
+    color: active ? "var(--text-primary)" : "var(--text-secondary)",
+    transition: "all .15s",
+  });
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:120, backdropFilter:"blur(4px)" }} />
+      <div style={{ position:"fixed", top:"50%", left:"50%", transform:"translate(-50%,-50%)", background:"var(--bg-card)", borderRadius:20, padding:28, width:"min(480px,94vw)", maxHeight:"88vh", overflowY:"auto", zIndex:121, boxShadow:"0 8px 32px rgba(28,25,23,0.18)", animation:"agendarIn .2s ease" }}>
+
+        {!success ? (
+          <>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+              <div>
+                <div style={{ fontFamily:"var(--font-lora)", fontSize:18, fontWeight:600, color:"var(--text-primary)" }}>Enviar cuestionario</div>
+                <div style={{ ...dm("12px"), color:"var(--text-muted)", marginTop:3 }}>El paciente recibirá un email con el link</div>
+              </div>
+              <button onClick={onClose} style={{ background:"transparent", border:"none", cursor:"pointer", color:"var(--text-muted)", fontSize:18 }}>✕</button>
+            </div>
+
+            {/* Paciente fijo */}
+            <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderRadius:12, background:"var(--surface)", border:"1px solid var(--border-light)", marginBottom:20 }}>
+              <div style={{ width:38, height:38, borderRadius:"50%", background:`${patient.color}20`, color:patient.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, fontFamily:"var(--font-dm-sans)", flexShrink:0 }}>
+                {patient.initials}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ ...dm("13px"), fontWeight:600, color:"var(--text-primary)" }}>{patient.name}</div>
+                <div style={{ ...dm("11px"), color:"var(--text-muted)" }}>{patient.email || "Sin correo registrado"}</div>
+              </div>
+              {!patient.email && (
+                <span style={{ ...dm("11px"), color:"var(--amber)", background:"var(--amber-bg)", padding:"3px 10px", borderRadius:20, flexShrink:0 }}>⚠ Sin email</span>
+              )}
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display:"flex", background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, padding:3, gap:2, marginBottom:16 }}>
+              <button style={tabStyle(tab==="estandar")} onClick={() => { setTab("estandar"); setSelectedTest(null); }}>
+                Estándares ({TESTS_DATA.length})
+              </button>
+              <button style={tabStyle(tab==="personalizados")} onClick={() => { setTab("personalizados"); setSelectedTest(null); }}>
+                Personalizados ({customTests.length})
+              </button>
+            </div>
+
+            {/* Lista */}
+            {loadingTests ? (
+              <div style={{ display:"flex", justifyContent:"center", padding:"24px 0" }}>
+                <div style={{ width:20, height:20, borderRadius:"50%", border:"2px solid var(--border)", borderTopColor:"var(--accent)", animation:"spin .7s linear infinite" }} />
+                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+              </div>
+            ) : tab === "estandar" ? (
+              <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
+                {TESTS_DATA.map(t => {
+                  const active = selectedTest?.id === t.id;
+                  return (
+                    <div key={t.id}
+                      onClick={() => setSelectedTest({ id:t.id, name:`${t.shortName} — ${t.category}`, isCustom:false, shortName:t.shortName, questionCount:t.questions.length, icon:t.icon })}
+                      style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, border:`1px solid ${active?"var(--accent)":"var(--border-light)"}`, background:active?"var(--accent-bg)":"var(--surface)", cursor:"pointer", transition:"all .15s" }}>
+                      <div style={{ width:36, height:36, borderRadius:10, background:"var(--accent-bg)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{t.icon}</div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ ...dm("13px"), fontWeight:600, color:"var(--text-primary)" }}>{t.shortName} — {t.category}</div>
+                        <div style={{ ...dm("11px"), color:"var(--text-muted)" }}>{t.questions.length} ítems</div>
+                      </div>
+                      {active && <div style={{ width:18, height:18, borderRadius:"50%", background:"var(--accent)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11, flexShrink:0 }}>✓</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : customTests.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"28px 0", marginBottom:20 }}>
+                <div style={{ fontSize:36, opacity:0.4, marginBottom:8 }}>📋</div>
+                <div style={{ ...dm("13px"), color:"var(--text-muted)" }}>No tienes cuestionarios personalizados aún.</div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
+                {customTests.map(ct => {
+                  const active = selectedTest?.id === ct.id;
+                  return (
+                    <div key={ct.id}
+                      onClick={() => setSelectedTest({ id:ct.id, name:ct.name, isCustom:true, shortName:ct.short_name, questionCount:ct.questions.length })}
+                      style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:12, border:`1px solid ${active?"var(--accent)":"var(--border-light)"}`, background:active?"var(--accent-bg)":"var(--surface)", cursor:"pointer", transition:"all .15s" }}>
+                      <div style={{ width:36, height:36, borderRadius:10, background:"var(--accent-bg)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>✏️</div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ ...dm("13px"), fontWeight:600, color:"var(--text-primary)" }}>{ct.name}</div>
+                        <div style={{ ...dm("11px"), color:"var(--text-muted)" }}>{ct.questions.length} preguntas · Personalizado</div>
+                      </div>
+                      {active && <div style={{ width:18, height:18, borderRadius:"50%", background:"var(--accent)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:11, flexShrink:0 }}>✓</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!patient.email && selectedTest && (
+              <div style={{ padding:"10px 14px", borderRadius:10, background:"var(--amber-bg)", border:"1px solid var(--amber)33", ...dm("12px"), color:"var(--amber)", marginBottom:14 }}>
+                ⚠ Este paciente no tiene correo. No recibirá el email, pero se generará el link de acceso.
+              </div>
+            )}
+
+            {error && <div style={{ padding:"10px 14px", borderRadius:10, background:"var(--red-bg)", ...dm("12px"), color:"var(--red)", marginBottom:14 }}>⚠ {error}</div>}
+
+            <div style={{ display:"flex", gap:10 }}>
+              <button className="btn-g" style={{ flex:1 }} onClick={onClose}>Cancelar</button>
+              <button className="btn-p" style={{ flex:1, opacity:(!selectedTest||sending)?0.6:1 }} onClick={handleSend} disabled={!selectedTest||sending}>
+                {sending ? "Enviando..." : "📤 Enviar cuestionario"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={{ textAlign:"center", padding:"12px 0" }}>
+            <div style={{ width:64, height:64, borderRadius:"50%", background:"var(--green-bg)", display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 18px", fontSize:28 }}>✅</div>
+            <div style={{ fontFamily:"var(--font-lora)", fontSize:18, fontWeight:600, color:"var(--text-primary)", marginBottom:8 }}>¡Cuestionario enviado!</div>
+            <div style={{ ...dm("13px"), color:"var(--text-muted)", marginBottom:20 }}>
+              {patient.email ? "El paciente recibirá un email con el link." : "Sin correo registrado. Usa el link de respaldo para compartirlo manualmente."}
+            </div>
+            {copiedLink && (
+              <div style={{ background:"var(--surface)", borderRadius:10, padding:"10px 14px", marginBottom:16, wordBreak:"break-all" }}>
+                <div style={{ ...dm("10px"), color:"var(--text-muted)", marginBottom:4 }}>Link de respaldo</div>
+                <div style={{ ...dm("12px"), color:"var(--accent)" }}>{copiedLink}</div>
+                <button onClick={() => { navigator.clipboard.writeText(copiedLink); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); }}
+                  style={{ marginTop:8, padding:"5px 14px", borderRadius:8, border:`1px solid ${linkCopied?"var(--green)":"var(--border)"}`, background:linkCopied?"var(--green-bg)":"var(--surface)", color:linkCopied?"var(--green)":"var(--text-secondary)", ...dm("11px"), cursor:"pointer" }}>
+                  {linkCopied ? "✓ Copiado" : "📋 Copiar link"}
+                </button>
+              </div>
+            )}
+            <button className="btn-p" style={{ width:"100%" }} onClick={onClose}>Cerrar</button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
 
 // ─── Modal Nuevo Paciente ─────────────────────────────────────────────────────
 interface NuevoPacienteModalProps {
@@ -64,28 +443,26 @@ interface NuevoPacienteModalProps {
 function NuevoPacienteModal({ onClose, onCreated }: NuevoPacienteModalProps) {
   const supabase = createClient();
 
-  const [step, setStep]     = useState<1 | 2>(1);
+  const [step, setStep]       = useState<1 | 2>(1);
   const [loading, setLoading] = useState(false);
-  const [error, setError]   = useState("");
+  const [error, setError]     = useState("");
 
-  // Paso 1
-  const [firstName, setFirstName]         = useState("");
-  const [lastName, setLastName]           = useState("");
-  const [birthDate, setBirthDate]         = useState("");
-  const [gender, setGender]               = useState<Gender | "">("");
-  const [phone, setPhone]                 = useState("");
-  const [email, setEmail]                 = useState("");
-  const [occupation, setOccupation]       = useState("");
-  // Paso 2
-  const [diagnosis, setDiagnosis]         = useState<string[]>([]);
+  const [firstName, setFirstName]           = useState("");
+  const [lastName, setLastName]             = useState("");
+  const [birthDate, setBirthDate]           = useState("");
+  const [gender, setGender]                 = useState<Gender | "">("");
+  const [phone, setPhone]                   = useState("");
+  const [email, setEmail]                   = useState("");
+  const [occupation, setOccupation]         = useState("");
+  const [diagnosis, setDiagnosis]           = useState<string[]>([]);
   const [referralSource, setReferralSource] = useState("");
-  const [status, setStatus]               = useState<PatientStatus>("activo");
-  const [modality, setModality]           = useState<Modality>("presencial");
-  const [notes, setNotes]                 = useState("");
+  const [status, setStatus]                 = useState<PatientStatus>("activo");
+  const [modality, setModality]             = useState<Modality>("presencial");
+  const [notes, setNotes]                   = useState("");
 
-  const fullName   = `${firstName} ${lastName}`.trim();
-  const initials   = firstName && lastName ? getInitials(firstName, lastName) : firstName ? firstName[0]?.toUpperCase() ?? "?" : "?";
-  const colorIdx   = fullName.length % AVATAR_COLORS.length;
+  const fullName    = `${firstName} ${lastName}`.trim();
+  const initials    = firstName && lastName ? getInitials(firstName, lastName) : firstName ? firstName[0]?.toUpperCase() ?? "?" : "?";
+  const colorIdx    = fullName.length % AVATAR_COLORS.length;
   const colorAvatar = AVATAR_COLORS[colorIdx];
 
   const step1Valid = firstName.trim() && lastName.trim() && birthDate && gender && phone.trim();
@@ -100,9 +477,7 @@ function NuevoPacienteModal({ onClose, onCreated }: NuevoPacienteModalProps) {
 
   async function handleGuardar() {
     if (!step1Valid || !step2Valid) return;
-    setLoading(true);
-    setError("");
-
+    setLoading(true); setError("");
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
@@ -111,45 +486,25 @@ function NuevoPacienteModal({ onClose, onCreated }: NuevoPacienteModalProps) {
         .from("patients")
         .insert({
           psychologist_id: user.id,
-          first_name:      firstName.trim(),
-          last_name:       lastName.trim(),
-          birth_date:      birthDate || null,
-          gender:          gender || null,
-          phone:           phone.trim(),
-          email:           email.trim() || null,
-          occupation:      occupation.trim() || null,
-          diagnosis:       diagnosis.join(", "),
+          first_name: firstName.trim(), last_name: lastName.trim(),
+          birth_date: birthDate || null, gender: gender || null,
+          phone: phone.trim(), email: email.trim() || null,
+          occupation: occupation.trim() || null,
+          diagnosis: diagnosis.join(", "),
           referral_source: referralSource.trim() || null,
-          status:          status,
-          notes:           notes.trim() || null,
-          session_count:   0,
+          status, notes: notes.trim() || null, session_count: 0,
         })
-        .select()
-        .single();
+        .select().single();
 
       if (dbError) throw dbError;
 
-      const age = calcAge(birthDate);
-      const newPatient: Patient = {
-        id:          data.id,
-        name:        fullName,
-        initials:    initials,
-        color:       colorAvatar,
-        age,
-        tag:         diagnosis.join(", "),
-        status,
-        sessions:    0,
-        nextSession: null,
-        lastSession: "—",
-        modality,
-        phone:       phone.trim(),
-        email:       email.trim(),
-        since:       getMonthYear(),
-        pendingTest: false,
-        pendingNote: false,
-      };
-
-      onCreated(newPatient);
+      onCreated({
+        id: data.id, name: fullName, initials, color: colorAvatar,
+        age: calcAge(birthDate), tag: diagnosis.join(", "), status,
+        sessions: 0, nextSession: null, lastSession: "—",
+        modality, phone: phone.trim(), email: email.trim(),
+        since: getMonthYear(), pendingTest: false, pendingNote: false,
+      });
       onClose();
     } catch (e: any) {
       setError(e.message || "Error al guardar el paciente");
@@ -161,8 +516,7 @@ function NuevoPacienteModal({ onClose, onCreated }: NuevoPacienteModalProps) {
   const inputStyle: React.CSSProperties = {
     width:"100%", border:"1px solid var(--border)", borderRadius:10,
     padding:"9px 13px", background:"var(--surface)", outline:"none",
-    ...dm("13px"), color:"var(--text-primary)", boxSizing:"border-box",
-    transition:"border-color .15s",
+    ...dm("13px"), color:"var(--text-primary)", boxSizing:"border-box", transition:"border-color .15s",
   };
   const labelStyle: React.CSSProperties = {
     ...dm("11px"), color:"var(--text-muted)", textTransform:"uppercase",
@@ -173,16 +527,7 @@ function NuevoPacienteModal({ onClose, onCreated }: NuevoPacienteModalProps) {
   return (
     <>
       <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:100, backdropFilter:"blur(3px)" }} />
-      <div style={{
-        position:"fixed", top:"50%", left:"50%",
-        transform:"translate(-50%, -50%)",
-        width:"min(540px, 95vw)", maxHeight:"90vh",
-        background:"var(--bg-card)", borderRadius:20,
-        border:"1px solid var(--border-light)",
-        boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
-        zIndex:101, display:"flex", flexDirection:"column",
-        animation:"modalIn .2s ease",
-      }}>
+      <div style={{ position:"fixed", top:"50%", left:"50%", transform:"translate(-50%, -50%)", width:"min(540px, 95vw)", maxHeight:"90vh", background:"var(--bg-card)", borderRadius:20, border:"1px solid var(--border-light)", boxShadow:"0 20px 60px rgba(0,0,0,0.3)", zIndex:101, display:"flex", flexDirection:"column", animation:"modalIn .2s ease" }}>
         <style>{`
           @keyframes modalIn { from{transform:translate(-50%,-48%);opacity:0} to{transform:translate(-50%,-50%);opacity:1} }
           .np-input:focus { border-color: var(--accent) !important; }
@@ -196,38 +541,23 @@ function NuevoPacienteModal({ onClose, onCreated }: NuevoPacienteModalProps) {
           .np-gender button:not(.active) { background:var(--surface); color:var(--text-secondary); }
         `}</style>
 
-        {/* Header */}
         <div style={{ padding:"20px 24px 16px", borderBottom:"1px solid var(--border-light)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            <div style={{
-              width:42, height:42, borderRadius:"50%",
-              background: fullName ? `${colorAvatar}20` : "var(--surface)",
-              color: fullName ? colorAvatar : "var(--text-muted)",
-              display:"flex", alignItems:"center", justifyContent:"center",
-              fontSize:14, fontWeight:600, fontFamily:"var(--font-dm-sans)",
-              border:`2px solid ${fullName ? colorAvatar+"40" : "var(--border)"}`,
-              transition:"all .2s",
-            }}>
+            <div style={{ width:42, height:42, borderRadius:"50%", background:fullName?`${colorAvatar}20`:"var(--surface)", color:fullName?colorAvatar:"var(--text-muted)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:600, fontFamily:"var(--font-dm-sans)", border:`2px solid ${fullName?colorAvatar+"40":"var(--border)"}`, transition:"all .2s" }}>
               {initials || "?"}
             </div>
             <div>
-              <div style={{ fontFamily:"var(--font-lora)", fontSize:16, fontWeight:600, color:"var(--text-primary)" }}>
-                {fullName || "Nuevo paciente"}
-              </div>
-              <div style={{ ...dm("11px"), color:"var(--text-muted)", marginTop:2 }}>
-                Paso {step} de 2 — {step===1 ? "Datos personales" : "Información clínica"}
-              </div>
+              <div style={{ fontFamily:"var(--font-lora)", fontSize:16, fontWeight:600, color:"var(--text-primary)" }}>{fullName || "Nuevo paciente"}</div>
+              <div style={{ ...dm("11px"), color:"var(--text-muted)", marginTop:2 }}>Paso {step} de 2 — {step===1?"Datos personales":"Información clínica"}</div>
             </div>
           </div>
           <button onClick={onClose} style={{ background:"transparent", border:"none", cursor:"pointer", color:"var(--text-muted)", fontSize:18 }}>✕</button>
         </div>
 
-        {/* Progress */}
         <div style={{ height:3, background:"var(--border-light)" }}>
           <div style={{ height:"100%", width:step===1?"50%":"100%", background:"var(--accent)", transition:"width .3s ease", borderRadius:2 }} />
         </div>
 
-        {/* Body */}
         <div style={{ padding:"20px 24px", overflowY:"auto", flex:1 }}>
           {step === 1 && (
             <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
@@ -241,44 +571,29 @@ function NuevoPacienteModal({ onClose, onCreated }: NuevoPacienteModalProps) {
                   <input className="np-input" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="González" style={inputStyle} />
                 </div>
               </div>
-
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                 <div>
                   <label style={labelStyle}>Fecha de nacimiento *</label>
-                  <input
-                    className="np-input" type="date" value={birthDate}
-                    onChange={e => setBirthDate(e.target.value)}
-                    max={new Date().toISOString().split("T")[0]}
-                    style={{ ...inputStyle, colorScheme:"dark" }}
-                  />
-                  {birthDate && (
-                    <div style={{ ...dm("11px"), color:"var(--text-muted)", marginTop:4 }}>
-                      {calcAge(birthDate)} años
-                    </div>
-                  )}
+                  <input className="np-input" type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} max={new Date().toISOString().split("T")[0]} style={{ ...inputStyle, colorScheme:"dark" }} />
+                  {birthDate && <div style={{ ...dm("11px"), color:"var(--text-muted)", marginTop:4 }}>{calcAge(birthDate)} años</div>}
                 </div>
                 <div>
                   <label style={labelStyle}>Ocupación <span style={optLabel}>(opcional)</span></label>
                   <input className="np-input" value={occupation} onChange={e => setOccupation(e.target.value)} placeholder="Ej: Diseñadora" style={inputStyle} />
                 </div>
               </div>
-
               <div>
                 <label style={labelStyle}>Género *</label>
                 <div className="np-gender">
                   {GENDER_OPTIONS.map(g => (
-                    <button key={g.val} className={gender===g.val?"active":""} onClick={() => setGender(g.val)}>
-                      {g.label}
-                    </button>
+                    <button key={g.val} className={gender===g.val?"active":""} onClick={() => setGender(g.val)}>{g.label}</button>
                   ))}
                 </div>
               </div>
-
               <div>
                 <label style={labelStyle}>Teléfono *</label>
                 <input className="np-input" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+52 55 1234 5678" style={inputStyle} />
               </div>
-
               <div>
                 <label style={labelStyle}>Correo electrónico <span style={optLabel}>(opcional)</span></label>
                 <input className="np-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="paciente@email.com" style={inputStyle} />
@@ -289,33 +604,23 @@ function NuevoPacienteModal({ onClose, onCreated }: NuevoPacienteModalProps) {
           {step === 2 && (
             <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
               <div>
-                <label style={labelStyle}>Diagnóstico / Motivo principal * <span style={{ fontWeight:400, textTransform:"none", letterSpacing:0, color:"var(--text-muted)" }}>(puedes elegir varios)</span></label>
+                <label style={labelStyle}>Diagnóstico / Motivo * <span style={{ fontWeight:400, textTransform:"none", letterSpacing:0, color:"var(--text-muted)" }}>(puedes elegir varios)</span></label>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
                   {DIAGNOSTICOS.map(d => {
-                    const selected = diagnosis.includes(d);
+                    const sel = diagnosis.includes(d);
                     return (
-                      <button
-                        key={d}
-                        onClick={() => setDiagnosis(prev => selected ? prev.filter(x => x !== d) : [...prev, d])}
-                        style={{
-                          padding:"6px 14px", borderRadius:20, border:"1px solid",
-                          cursor:"pointer", ...dm("12px"), fontWeight:500,
-                          background: selected ? "var(--accent)" : "var(--surface)",
-                          borderColor: selected ? "var(--accent)" : "var(--border)",
-                          color: selected ? "#FAF7F2" : "var(--text-secondary)",
-                          transition:"all .15s",
-                        }}
-                      >{selected ? "✓ " : ""}{d}</button>
+                      <button key={d} onClick={() => setDiagnosis(prev => sel?prev.filter(x=>x!==d):[...prev,d])}
+                        style={{ padding:"6px 14px", borderRadius:20, border:"1px solid", cursor:"pointer", ...dm("12px"), fontWeight:500, background:sel?"var(--accent)":"var(--surface)", borderColor:sel?"var(--accent)":"var(--border)", color:sel?"#FAF7F2":"var(--text-secondary)", transition:"all .15s" }}>
+                        {sel?"✓ ":""}{d}
+                      </button>
                     );
                   })}
                 </div>
               </div>
-
               <div>
                 <label style={labelStyle}>Derivado por <span style={optLabel}>(opcional)</span></label>
                 <input className="np-input" value={referralSource} onChange={e => setReferralSource(e.target.value)} placeholder="Ej: Médico familiar, auto-referido..." style={inputStyle} />
               </div>
-
               <div>
                 <label style={labelStyle}>Modalidad</label>
                 <div className="np-seg">
@@ -326,7 +631,6 @@ function NuevoPacienteModal({ onClose, onCreated }: NuevoPacienteModalProps) {
                   ))}
                 </div>
               </div>
-
               <div>
                 <label style={labelStyle}>Estado inicial</label>
                 <div className="np-seg">
@@ -337,43 +641,23 @@ function NuevoPacienteModal({ onClose, onCreated }: NuevoPacienteModalProps) {
                   ))}
                 </div>
               </div>
-
               <div>
                 <label style={labelStyle}>Notas iniciales <span style={optLabel}>(opcional)</span></label>
-                <textarea
-                  className="np-input" value={notes} onChange={e => setNotes(e.target.value)}
-                  placeholder="Observaciones iniciales, contexto relevante..."
-                  rows={3} style={{ ...inputStyle, resize:"none", lineHeight:1.5 }}
-                />
+                <textarea className="np-input" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observaciones iniciales, contexto relevante..." rows={3} style={{ ...inputStyle, resize:"none", lineHeight:1.5 }} />
               </div>
-
-              {error && (
-                <div style={{ padding:"10px 14px", borderRadius:10, background:"var(--red-bg)", border:"1px solid var(--red)33", ...dm("12px"), color:"var(--red)" }}>
-                  ⚠ {error}
-                </div>
-              )}
+              {error && <div style={{ padding:"10px 14px", borderRadius:10, background:"var(--red-bg)", border:"1px solid var(--red)33", ...dm("12px"), color:"var(--red)" }}>⚠ {error}</div>}
             </div>
           )}
         </div>
 
-        {/* Footer */}
         <div style={{ padding:"16px 24px", borderTop:"1px solid var(--border-light)", display:"flex", gap:10, justifyContent:"flex-end" }}>
-          {step===2 && (
-            <button className="btn-g" onClick={() => setStep(1)} style={{ padding:"0 20px", height:38 }}>← Atrás</button>
-          )}
+          {step===2 && <button className="btn-g" onClick={() => setStep(1)} style={{ padding:"0 20px", height:38 }}>← Atrás</button>}
           <button
-            onClick={() => step===1 ? (step1Valid && setStep(2)) : handleGuardar()}
-            disabled={step===1 ? !step1Valid : !step2Valid || loading}
-            style={{
-              padding:"0 24px", height:38, borderRadius:10, border:"none",
-              background: (step===1 ? step1Valid : step2Valid && !loading) ? "var(--accent)" : "var(--border)",
-              color: (step===1 ? step1Valid : step2Valid && !loading) ? "#FAF7F2" : "var(--text-muted)",
-              ...dm("13px"), fontWeight:500,
-              cursor: (step===1 ? step1Valid : step2Valid && !loading) ? "pointer" : "not-allowed",
-              transition:"all .15s",
-            }}
+            onClick={() => step===1?(step1Valid&&setStep(2)):handleGuardar()}
+            disabled={step===1?!step1Valid:!step2Valid||loading}
+            style={{ padding:"0 24px", height:38, borderRadius:10, border:"none", background:(step===1?step1Valid:step2Valid&&!loading)?"var(--accent)":"var(--border)", color:(step===1?step1Valid:step2Valid&&!loading)?"#FAF7F2":"var(--text-muted)", ...dm("13px"), fontWeight:500, cursor:(step===1?step1Valid:step2Valid&&!loading)?"pointer":"not-allowed", transition:"all .15s" }}
           >
-            {loading ? "Guardando..." : step===1 ? "Continuar →" : "✓ Crear paciente"}
+            {loading?"Guardando...":step===1?"Continuar →":"✓ Crear paciente"}
           </button>
         </div>
       </div>
@@ -394,6 +678,10 @@ export function PacientesView() {
   const [viewMode, setViewMode]         = useState<"grid" | "list">("list");
   const [selected, setSelected]         = useState<Patient | null>(null);
   const [showModal, setShowModal]       = useState(false);
+
+  // Modales de acción rápida
+  const [agendarTarget, setAgendarTarget]       = useState<Patient | null>(null);
+  const [enviarTestTarget, setEnviarTestTarget] = useState<Patient | null>(null);
 
   useEffect(() => {
     async function fetchPatients() {
@@ -416,25 +704,17 @@ export function PacientesView() {
           const age = p.birth_date ? calcAge(p.birth_date) : 0;
           const createdAt = new Date(p.created_at);
           const months = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-          const since = `${months[createdAt.getMonth()]} ${createdAt.getFullYear()}`;
-
           return {
-            id:          p.id,
-            name:        fullName,
-            initials:    getInitials(p.first_name, p.last_name),
-            color:       AVATAR_COLORS[colorIdx],
-            age,
-            tag:         p.diagnosis ?? "—",
-            status:      (p.status ?? "activo") as PatientStatus,
-            sessions:    p.session_count ?? 0,
-            nextSession: null,
-            lastSession: "—",
-            modality:    "presencial",
-            phone:       p.phone ?? "",
-            email:       p.email ?? "",
-            since,
-            pendingTest: false,
-            pendingNote: false,
+            id: p.id, name: fullName,
+            initials: getInitials(p.first_name, p.last_name),
+            color: AVATAR_COLORS[colorIdx], age,
+            tag: p.diagnosis ?? "—",
+            status: (p.status ?? "activo") as PatientStatus,
+            sessions: p.session_count ?? 0,
+            nextSession: null, lastSession: "—", modality: "presencial",
+            phone: p.phone ?? "", email: p.email ?? "",
+            since: `${months[createdAt.getMonth()]} ${createdAt.getFullYear()}`,
+            pendingTest: false, pendingNote: false,
           };
         });
 
@@ -445,12 +725,10 @@ export function PacientesView() {
         setLoadingList(false);
       }
     }
-
     fetchPatients();
   }, []);
 
   const tags = ["all", ...Array.from(new Set(patients.flatMap(p => p.tag.split(", ").map(s => s.trim()).filter(Boolean))))];
-
   const filtered = patients.filter(p => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.tag.toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus==="all" || p.status===filterStatus;
@@ -458,52 +736,40 @@ export function PacientesView() {
     return matchSearch && matchStatus && matchTag;
   });
 
+  // ── Editar ──
   const [editTarget, setEditTarget]   = useState<Patient | null>(null);
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError]     = useState("");
-
-  // Campos edición
-  const [eFirstName, setEFirstName]       = useState("");
-  const [eLastName, setELastName]         = useState("");
-  const [eBirthDate, setEBirthDate]       = useState("");
-  const [eGender, setEGender]             = useState<Gender | "">("");
-  const [ePhone, setEPhone]               = useState("");
-  const [eEmail, setEEmail]               = useState("");
-  const [eOccupation, setEOccupation]     = useState("");
-  const [eDiagnosis, setEDiagnosis]       = useState<string[]>([]);
-  const [eStatus, setEStatus]             = useState<PatientStatus>("activo");
-  const [eNotes, setENotes]               = useState("");
+  const [eFirstName, setEFirstName]   = useState("");
+  const [eLastName, setELastName]     = useState("");
+  const [eBirthDate, setEBirthDate]   = useState("");
+  const [eGender, setEGender]         = useState<Gender | "">("");
+  const [ePhone, setEPhone]           = useState("");
+  const [eEmail, setEEmail]           = useState("");
+  const [eOccupation, setEOccupation] = useState("");
+  const [eDiagnosis, setEDiagnosis]   = useState<string[]>([]);
+  const [eStatus, setEStatus]         = useState<PatientStatus>("activo");
+  const [eNotes, setENotes]           = useState("");
 
   function openEditModal(p: Patient) {
     setEFirstName(p.name.split(" ")[0] ?? "");
     setELastName(p.name.split(" ").slice(1).join(" ") ?? "");
-    setEBirthDate("");
-    setEGender("");
-    setEPhone(p.phone);
-    setEEmail(p.email);
-    setEOccupation("");
-    setEDiagnosis(p.tag === "—" ? [] : p.tag.split(", ").map(s => s.trim()).filter(Boolean));
-    setEStatus(p.status);
-    setENotes("");
-    setEditError("");
-    setEditTarget(p);
+    setEBirthDate(""); setEGender(""); setEPhone(p.phone); setEEmail(p.email);
+    setEOccupation(""); setEDiagnosis(p.tag==="—"?[]:p.tag.split(", ").map(s=>s.trim()).filter(Boolean));
+    setEStatus(p.status); setENotes(""); setEditError(""); setEditTarget(p);
   }
 
   async function handleEditSave() {
     if (!editTarget) return;
-    setEditLoading(true);
-    setEditError("");
+    setEditLoading(true); setEditError("");
     try {
       const supabase = createClient();
       const updates: any = {
-        first_name: eFirstName.trim(),
-        last_name:  eLastName.trim(),
-        phone:      ePhone.trim() || null,
-        email:      eEmail.trim() || null,
-        occupation: eOccupation.trim() || null,
-        diagnosis:  eDiagnosis.length > 0 ? eDiagnosis.join(", ") : null,
-        status:     eStatus,
-        notes:      eNotes.trim() || null,
+        first_name: eFirstName.trim(), last_name: eLastName.trim(),
+        phone: ePhone.trim()||null, email: eEmail.trim()||null,
+        occupation: eOccupation.trim()||null,
+        diagnosis: eDiagnosis.length>0?eDiagnosis.join(", "):null,
+        status: eStatus, notes: eNotes.trim()||null,
       };
       if (eBirthDate) updates.birth_date = eBirthDate;
       if (eGender)    updates.gender = eGender;
@@ -512,48 +778,30 @@ export function PacientesView() {
       if (error) throw error;
 
       const fullName = `${eFirstName.trim()} ${eLastName.trim()}`.trim();
-      const age = eBirthDate ? calcAge(eBirthDate) : editTarget.age;
       const updated: Patient = {
-        ...editTarget,
-        name:     fullName,
+        ...editTarget, name: fullName,
         initials: getInitials(eFirstName.trim(), eLastName.trim()),
-        age,
-        tag:      eDiagnosis.length > 0 ? eDiagnosis.join(", ") : "—",
-        status:   eStatus,
-        phone:    ePhone.trim(),
-        email:    eEmail.trim(),
+        age: eBirthDate?calcAge(eBirthDate):editTarget.age,
+        tag: eDiagnosis.length>0?eDiagnosis.join(", "):"—",
+        status: eStatus, phone: ePhone.trim(), email: eEmail.trim(),
       };
-      setPatients(prev => prev.map(p => p.id === editTarget.id ? updated : p));
-      setSelected(updated);
-      setEditTarget(null);
+      setPatients(prev => prev.map(p => p.id===editTarget.id?updated:p));
+      setSelected(updated); setEditTarget(null);
     } catch (e: any) {
-      setEditError(e.message || "Error al guardar");
+      setEditError(e.message||"Error al guardar");
     } finally {
       setEditLoading(false);
     }
   }
 
-  const [deleteTarget, setDeleteTarget]       = useState<Patient | null>(null);
-  const [deleteStep, setDeleteStep]           = useState<1 | 2>(1);
-  const [deleteLoading, setDeleteLoading]     = useState(false);
+  // ── Eliminar ──
+  const [deleteTarget, setDeleteTarget]           = useState<Patient | null>(null);
+  const [deleteStep, setDeleteStep]               = useState<1 | 2>(1);
+  const [deleteLoading, setDeleteLoading]         = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
 
-  function handlePatientCreated(patient: Patient) {
-    setPatients(prev => [patient, ...prev]);
-    setSelected(patient);
-  }
-
-  function openDeleteModal(patient: Patient) {
-    setDeleteTarget(patient);
-    setDeleteStep(1);
-    setDeleteConfirmName("");
-  }
-
-  function closeDeleteModal() {
-    setDeleteTarget(null);
-    setDeleteStep(1);
-    setDeleteConfirmName("");
-  }
+  function openDeleteModal(patient: Patient) { setDeleteTarget(patient); setDeleteStep(1); setDeleteConfirmName(""); }
+  function closeDeleteModal() { setDeleteTarget(null); setDeleteStep(1); setDeleteConfirmName(""); }
 
   async function handleDeleteConfirmed() {
     if (!deleteTarget) return;
@@ -562,16 +810,17 @@ export function PacientesView() {
       const supabase = createClient();
       const { error } = await supabase.from("patients").delete().eq("id", deleteTarget.id);
       if (error) throw error;
-      setPatients(prev => prev.filter(p => p.id !== deleteTarget.id));
-      if (selected?.id === deleteTarget.id) setSelected(null);
+      setPatients(prev => prev.filter(p => p.id!==deleteTarget.id));
+      if (selected?.id===deleteTarget.id) setSelected(null);
       closeDeleteModal();
     } catch (e: any) {
-      alert("Error al eliminar: " + e.message);
+      alert("Error al eliminar: "+e.message);
     } finally {
       setDeleteLoading(false);
     }
   }
 
+  // ── Panel de detalle ──
   const DetailPanel = () => selected ? (
     <>
       <div style={{ padding:"20px 20px 16px", borderBottom:"1px solid var(--border-light)", background:`${selected.color}0A` }}>
@@ -595,21 +844,21 @@ export function PacientesView() {
         <div style={{ ...dm("11px"), color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:"0.6px", marginBottom:10 }}>Contacto</div>
         {[{ icon:"📞", val:selected.phone },{ icon:"📧", val:selected.email }].map((r,i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:"1px solid var(--border-light)" }}>
-            <span>{r.icon}</span><span style={{ ...dm("13px"), color:"var(--text-primary)" }}>{r.val || "—"}</span>
+            <span>{r.icon}</span><span style={{ ...dm("13px"), color:"var(--text-primary)" }}>{r.val||"—"}</span>
           </div>
         ))}
         <div style={{ ...dm("11px"), color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:"0.6px", margin:"16px 0 10px" }}>Actividad clínica</div>
         {[
           { label:"Sesiones totales", val:String(selected.sessions) },
           { label:"Última sesión",    val:selected.lastSession },
-          { label:"Próxima cita",     val:selected.nextSession ?? "Sin programar" },
+          { label:"Próxima cita",     val:selected.nextSession??"Sin programar" },
         ].map((r,i) => (
           <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"9px 0", borderBottom:"1px solid var(--border-light)" }}>
             <span style={{ ...dm("12px"), color:"var(--text-muted)" }}>{r.label}</span>
             <span style={{ ...dm("13px"), color:"var(--text-primary)", fontWeight:500 }}>{r.val}</span>
           </div>
         ))}
-        {(selected.pendingTest || selected.pendingNote) && (
+        {(selected.pendingTest||selected.pendingNote) && (
           <div style={{ marginTop:16 }}>
             <div style={{ ...dm("11px"), color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:"0.6px", marginBottom:8 }}>Pendientes</div>
             {selected.pendingTest && <div style={{ display:"flex", gap:8, alignItems:"center", padding:"8px 12px", borderRadius:10, background:"var(--amber-bg)", border:"1px solid var(--amber)22", marginBottom:6 }}><span>📋</span><span style={{ ...dm("12px"), color:"var(--text-primary)" }}>Test psicológico pendiente</span></div>}
@@ -619,8 +868,20 @@ export function PacientesView() {
         <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:20 }}>
           <button className="btn-p" onClick={() => router.push(`/expedientes?patientId=${selected.id}`)} style={{ width:"100%" }}>📂 Ver expediente completo</button>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-            <button className="btn-g" style={{ fontSize:12 }}>📅 Agendar cita</button>
-            <button className="btn-g" style={{ fontSize:12 }}>📋 Enviar test</button>
+            <button
+              className="btn-g"
+              style={{ fontSize:12 }}
+              onClick={() => setAgendarTarget(selected)}
+            >
+              📅 Agendar cita
+            </button>
+            <button
+              className="btn-g"
+              style={{ fontSize:12 }}
+              onClick={() => setEnviarTestTarget(selected)}
+            >
+              📋 Enviar test
+            </button>
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:8, paddingTop:12, borderTop:"1px solid var(--border-light)" }}>
             <button
@@ -628,17 +889,13 @@ export function PacientesView() {
               style={{ padding:"8px 0", border:"1px solid var(--border)", borderRadius:10, background:"var(--surface)", color:"var(--text-primary)", fontFamily:"var(--font-dm-sans)", fontSize:12, fontWeight:500, cursor:"pointer", transition:"all .15s" }}
               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor="var(--accent)"; }}
               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor="var(--border)"; }}
-            >
-              ✏️ Editar
-            </button>
+            >✏️ Editar</button>
             <button
               onClick={() => openDeleteModal(selected)}
               style={{ padding:"8px 0", border:"1px solid var(--red)44", borderRadius:10, background:"var(--red-bg)", color:"var(--red)", fontFamily:"var(--font-dm-sans)", fontSize:12, fontWeight:500, cursor:"pointer", transition:"all .15s" }}
               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background="var(--red)18"; }}
               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background="var(--red-bg)"; }}
-            >
-              🗑 Eliminar
-            </button>
+            >🗑 Eliminar</button>
           </div>
         </div>
       </div>
@@ -672,17 +929,13 @@ export function PacientesView() {
       <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:16, gap:12, flexWrap:"wrap" }}>
         <div>
           <h1 style={{ fontFamily:"var(--font-lora)", fontSize:24, fontWeight:600, color:"var(--text-primary)", letterSpacing:"-0.3px" }}>Pacientes</h1>
-          <p style={{ ...dm("13px"), color:"var(--text-muted)", marginTop:4 }}>{filtered.length} pacientes · {patients.filter(p => p.status==="activo").length} activos</p>
+          <p style={{ ...dm("13px"), color:"var(--text-muted)", marginTop:4 }}>{filtered.length} pacientes · {patients.filter(p=>p.status==="activo").length} activos</p>
         </div>
         <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap", width:"100%" }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, padding:"7px 14px", flex:1 }}>
             <span style={{ color:"var(--text-muted)" }}>🔍</span>
-            <input
-              value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Buscar paciente o diagnóstico..."
-              className="pac-search"
-              style={{ border:"none", background:"transparent", outline:"none", ...dm("13px"), color:"var(--text-primary)", minWidth:0 }}
-            />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar paciente o diagnóstico..." className="pac-search"
+              style={{ border:"none", background:"transparent", outline:"none", ...dm("13px"), color:"var(--text-primary)", minWidth:0 }} />
           </div>
           <div className="pac-view-toggle" style={{ background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, padding:3, gap:2 }}>
             {(["list","grid"] as const).map(v => (
@@ -691,12 +944,10 @@ export function PacientesView() {
               </button>
             ))}
           </div>
-          <button
-            onClick={() => setShowModal(true)}
+          <button onClick={() => setShowModal(true)}
             style={{ display:"flex", alignItems:"center", gap:6, background:"var(--accent)", color:"#FAF7F2", border:"none", padding:"0 18px", borderRadius:10, height:38, fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, cursor:"pointer", boxShadow:"0 2px 8px rgba(139,115,85,0.35)", whiteSpace:"nowrap" }}
             onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity="0.9"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity="1"; }}
-          >
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity="1"; }}>
             + Nuevo paciente
           </button>
         </div>
@@ -712,9 +963,7 @@ export function PacientesView() {
         ))}
         <div style={{ width:1, height:20, background:"var(--border)", margin:"0 4px", flexShrink:0 }} />
         {tags.map(t => (
-          <span key={t} className={`chip${filterTag===t?" on":""}`} onClick={() => setFilterTag(t)} style={{ cursor:"pointer", flexShrink:0 }}>
-            {t==="all"?"Todos":t}
-          </span>
+          <span key={t} className={`chip${filterTag===t?" on":""}`} onClick={() => setFilterTag(t)} style={{ cursor:"pointer", flexShrink:0 }}>{t==="all"?"Todos":t}</span>
         ))}
       </div>
 
@@ -725,27 +974,25 @@ export function PacientesView() {
             <div className="card" style={{ display:"flex", alignItems:"center", justifyContent:"center", padding:"64px 24px", gap:12 }}>
               <div style={{ width:20, height:20, borderRadius:"50%", border:"2px solid var(--border)", borderTopColor:"var(--accent)", animation:"spin .7s linear infinite" }} />
               <span style={{ ...dm("13px"), color:"var(--text-muted)" }}>Cargando pacientes...</span>
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
             </div>
-          ) : patients.length === 0 ? (
+          ) : patients.length===0 ? (
             <div className="card" style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"64px 24px", gap:16, textAlign:"center" }}>
               <div style={{ fontSize:48, opacity:0.4 }}>🧑‍⚕️</div>
               <div style={{ fontFamily:"var(--font-lora)", fontSize:18, fontWeight:600, color:"var(--text-primary)" }}>Aún no tienes pacientes</div>
               <div style={{ ...dm("13px"), color:"var(--text-muted)", maxWidth:300 }}>Agrega tu primer paciente usando el botón "+ Nuevo paciente" para comenzar.</div>
-              <button
-                onClick={() => setShowModal(true)}
-                style={{ marginTop:8, display:"flex", alignItems:"center", gap:6, background:"var(--accent)", color:"#FAF7F2", border:"none", padding:"0 22px", borderRadius:10, height:40, fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, cursor:"pointer", boxShadow:"0 2px 8px rgba(139,115,85,0.35)" }}
-              >
+              <button onClick={() => setShowModal(true)}
+                style={{ marginTop:8, display:"flex", alignItems:"center", gap:6, background:"var(--accent)", color:"#FAF7F2", border:"none", padding:"0 22px", borderRadius:10, height:40, fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, cursor:"pointer", boxShadow:"0 2px 8px rgba(139,115,85,0.35)" }}>
                 + Agregar primer paciente
               </button>
             </div>
-          ) : filtered.length === 0 ? (
+          ) : filtered.length===0 ? (
             <div className="card" style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"48px 24px", gap:10, textAlign:"center" }}>
               <div style={{ fontSize:36, opacity:0.4 }}>🔍</div>
               <div style={{ ...dm("14px"), fontWeight:600, color:"var(--text-primary)" }}>Sin resultados</div>
               <div style={{ ...dm("13px"), color:"var(--text-muted)" }}>Ningún paciente coincide con los filtros actuales.</div>
             </div>
-          ) : viewMode === "list" ? (
+          ) : viewMode==="list" ? (
             <div className="card" style={{ overflow:"hidden" }}>
               <div className="pac-table-header" style={{ gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr auto", gap:12, padding:"10px 18px", borderBottom:"1px solid var(--border-light)", background:"var(--surface)" }}>
                 {["Paciente","Diagnóstico","Estado","Sesiones","Próxima cita","Modalidad",""].map((h,i) => (
@@ -753,14 +1000,10 @@ export function PacientesView() {
                 ))}
               </div>
               {filtered.map(p => (
-                <div
-                  key={p.id}
-                  onClick={() => setSelected(p.id===selected?.id?null:p)}
-                  className="pac-table-row"
+                <div key={p.id} onClick={() => setSelected(p.id===selected?.id?null:p)} className="pac-table-row"
                   style={{ gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr auto", gap:12, padding:"13px 18px", alignItems:"center", borderBottom:"1px solid var(--border-light)", cursor:"pointer", transition:"all .15s", background:selected?.id===p.id?"var(--accent-bg)":"transparent", borderLeft:selected?.id===p.id?"3px solid var(--accent)":"3px solid transparent" }}
                   onMouseEnter={e => { if(selected?.id!==p.id)(e.currentTarget as HTMLDivElement).style.background="var(--surface)"; }}
-                  onMouseLeave={e => { if(selected?.id!==p.id)(e.currentTarget as HTMLDivElement).style.background="transparent"; }}
-                >
+                  onMouseLeave={e => { if(selected?.id!==p.id)(e.currentTarget as HTMLDivElement).style.background="transparent"; }}>
                   <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                     <div style={{ width:36, height:36, borderRadius:"50%", background:`${p.color}18`, color:p.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:600, fontFamily:"var(--font-dm-sans)", flexShrink:0 }}>{p.initials}</div>
                     <div>
@@ -782,13 +1025,10 @@ export function PacientesView() {
           ) : (
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))", gap:14 }}>
               {filtered.map(p => (
-                <div
-                  key={p.id} className="card"
-                  onClick={() => setSelected(p.id===selected?.id?null:p)}
+                <div key={p.id} className="card" onClick={() => setSelected(p.id===selected?.id?null:p)}
                   style={{ padding:16, cursor:"pointer", borderColor:selected?.id===p.id?"var(--accent-light)":"var(--border-light)", background:selected?.id===p.id?"var(--accent-bg)":"var(--bg-card)", transition:"all .2s" }}
                   onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform="translateY(-2px)"; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform="translateY(0)"; }}
-                >
+                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform="translateY(0)"; }}>
                   <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12 }}>
                     <div style={{ width:40, height:40, borderRadius:"50%", background:`${p.color}18`, color:p.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, fontFamily:"var(--font-dm-sans)" }}>{p.initials}</div>
                     <span className="tag" style={{ background:STATUS_META[p.status].bg, color:STATUS_META[p.status].color }}>{STATUS_META[p.status].label}</span>
@@ -827,29 +1067,35 @@ export function PacientesView() {
         </>
       )}
 
-      {showModal && (
-        <NuevoPacienteModal
-          onClose={() => setShowModal(false)}
-          onCreated={handlePatientCreated}
+      {showModal && <NuevoPacienteModal onClose={() => setShowModal(false)} onCreated={p => { setPatients(prev => [p,...prev]); setSelected(p); }} />}
+
+      {/* Modal agendar cita */}
+      {agendarTarget && (
+        <AgendarCitaModal
+          patient={agendarTarget}
+          onClose={() => setAgendarTarget(null)}
+          onCreated={() => {
+            const label = new Date().toLocaleDateString("es-MX", { day:"numeric", month:"short" });
+            setPatients(prev => prev.map(p => p.id===agendarTarget.id ? { ...p, nextSession:label } : p));
+            if (selected?.id===agendarTarget.id) setSelected(prev => prev ? { ...prev, nextSession:label } : prev);
+          }}
         />
       )}
 
-      {/* Modal eliminar paciente */}
+      {/* Modal enviar test */}
+      {enviarTestTarget && (
+        <EnviarTestModal
+          patient={enviarTestTarget}
+          onClose={() => setEnviarTestTarget(null)}
+        />
+      )}
+
+      {/* Modal eliminar */}
       {deleteTarget && (
         <>
           <div onClick={closeDeleteModal} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:110, backdropFilter:"blur(3px)" }} />
-          <div style={{
-            position:"fixed", top:"50%", left:"50%",
-            transform:"translate(-50%, -50%)",
-            width:"min(420px, 92vw)",
-            background:"var(--bg-card)", borderRadius:20,
-            border:"1px solid var(--border-light)",
-            boxShadow:"0 20px 60px rgba(0,0,0,0.35)",
-            zIndex:111, overflow:"hidden",
-            animation:"modalIn .2s ease",
-          }}>
-            {deleteStep === 1 ? (
-              /* Paso 1: Advertencia */
+          <div style={{ position:"fixed", top:"50%", left:"50%", transform:"translate(-50%, -50%)", width:"min(420px, 92vw)", background:"var(--bg-card)", borderRadius:20, border:"1px solid var(--border-light)", boxShadow:"0 20px 60px rgba(0,0,0,0.35)", zIndex:111, overflow:"hidden", animation:"modalIn .2s ease" }}>
+            {deleteStep===1 ? (
               <div style={{ padding:"28px 28px 24px" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:20 }}>
                   <div style={{ width:48, height:48, borderRadius:"50%", background:"var(--red-bg)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>⚠️</div>
@@ -872,16 +1118,10 @@ export function PacientesView() {
                 </div>
                 <div style={{ display:"flex", gap:10 }}>
                   <button onClick={closeDeleteModal} className="btn-g" style={{ flex:1, height:40 }}>Cancelar</button>
-                  <button
-                    onClick={() => setDeleteStep(2)}
-                    style={{ flex:1, height:40, borderRadius:10, border:"none", background:"var(--red)", color:"#fff", fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, cursor:"pointer" }}
-                  >
-                    Continuar →
-                  </button>
+                  <button onClick={() => setDeleteStep(2)} style={{ flex:1, height:40, borderRadius:10, border:"none", background:"var(--red)", color:"#fff", fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, cursor:"pointer" }}>Continuar →</button>
                 </div>
               </div>
             ) : (
-              /* Paso 2: Confirmación escribiendo nombre */
               <div style={{ padding:"28px 28px 24px" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
                   <div style={{ width:44, height:44, borderRadius:"50%", background:"var(--red-bg)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>🗑</div>
@@ -893,33 +1133,13 @@ export function PacientesView() {
                 <div style={{ ...dm("13px"), color:"var(--text-secondary)", marginBottom:14, lineHeight:1.5 }}>
                   Para confirmar, escribe exactamente: <span style={{ fontWeight:600, color:"var(--text-primary)" }}>{deleteTarget.name}</span>
                 </div>
-                <input
-                  autoFocus
-                  value={deleteConfirmName}
-                  onChange={e => setDeleteConfirmName(e.target.value)}
-                  placeholder={deleteTarget.name}
-                  style={{
-                    width:"100%", border:`1px solid ${deleteConfirmName === deleteTarget.name ? "var(--red)" : "var(--border)"}`,
-                    borderRadius:10, padding:"10px 14px", background:"var(--surface)", outline:"none",
-                    ...dm("13px"), color:"var(--text-primary)", boxSizing:"border-box",
-                    transition:"border-color .2s", marginBottom:20,
-                  }}
-                />
+                <input autoFocus value={deleteConfirmName} onChange={e => setDeleteConfirmName(e.target.value)} placeholder={deleteTarget.name}
+                  style={{ width:"100%", border:`1px solid ${deleteConfirmName===deleteTarget.name?"var(--red)":"var(--border)"}`, borderRadius:10, padding:"10px 14px", background:"var(--surface)", outline:"none", ...dm("13px"), color:"var(--text-primary)", boxSizing:"border-box", transition:"border-color .2s", marginBottom:20 }} />
                 <div style={{ display:"flex", gap:10 }}>
                   <button onClick={() => setDeleteStep(1)} className="btn-g" style={{ flex:1, height:40 }}>← Atrás</button>
-                  <button
-                    onClick={handleDeleteConfirmed}
-                    disabled={deleteConfirmName !== deleteTarget.name || deleteLoading}
-                    style={{
-                      flex:1, height:40, borderRadius:10, border:"none",
-                      background: deleteConfirmName === deleteTarget.name && !deleteLoading ? "var(--red)" : "var(--border)",
-                      color: deleteConfirmName === deleteTarget.name && !deleteLoading ? "#fff" : "var(--text-muted)",
-                      fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500,
-                      cursor: deleteConfirmName === deleteTarget.name && !deleteLoading ? "pointer" : "not-allowed",
-                      transition:"all .15s",
-                    }}
-                  >
-                    {deleteLoading ? "Eliminando..." : "Eliminar definitivamente"}
+                  <button onClick={handleDeleteConfirmed} disabled={deleteConfirmName!==deleteTarget.name||deleteLoading}
+                    style={{ flex:1, height:40, borderRadius:10, border:"none", background:deleteConfirmName===deleteTarget.name&&!deleteLoading?"var(--red)":"var(--border)", color:deleteConfirmName===deleteTarget.name&&!deleteLoading?"#fff":"var(--text-muted)", fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, cursor:deleteConfirmName===deleteTarget.name&&!deleteLoading?"pointer":"not-allowed", transition:"all .15s" }}>
+                    {deleteLoading?"Eliminando...":"Eliminar definitivamente"}
                   </button>
                 </div>
               </div>
@@ -927,43 +1147,23 @@ export function PacientesView() {
           </div>
         </>
       )}
+
       {/* Modal edición */}
       {editTarget && (() => {
-        const inputStyle: React.CSSProperties = {
-          width:"100%", border:"1px solid var(--border)", borderRadius:10,
-          padding:"9px 13px", background:"var(--surface)", outline:"none",
-          fontFamily:"var(--font-dm-sans)", fontSize:"13px", color:"var(--text-primary)",
-          boxSizing:"border-box", transition:"border-color .15s",
-        };
-        const labelStyle: React.CSSProperties = {
-          fontFamily:"var(--font-dm-sans)", fontSize:"11px", color:"var(--text-muted)",
-          textTransform:"uppercase", letterSpacing:"0.5px", fontWeight:600,
-          display:"block", marginBottom:5,
-        };
+        const inputStyle: React.CSSProperties = { width:"100%", border:"1px solid var(--border)", borderRadius:10, padding:"9px 13px", background:"var(--surface)", outline:"none", fontFamily:"var(--font-dm-sans)", fontSize:"13px", color:"var(--text-primary)", boxSizing:"border-box", transition:"border-color .15s" };
+        const labelStyle: React.CSSProperties = { fontFamily:"var(--font-dm-sans)", fontSize:"11px", color:"var(--text-muted)", textTransform:"uppercase", letterSpacing:"0.5px", fontWeight:600, display:"block", marginBottom:5 };
         const GENDER_OPTIONS: { val: Gender; label: string }[] = [
-          { val:"femenino",          label:"♀ Femenino" },
-          { val:"masculino",         label:"♂ Masculino" },
-          { val:"no_binario",        label:"⚧ No binario" },
-          { val:"prefiero_no_decir", label:"— Prefiero no decir" },
+          { val:"femenino", label:"♀ Femenino" }, { val:"masculino", label:"♂ Masculino" },
+          { val:"no_binario", label:"⚧ No binario" }, { val:"prefiero_no_decir", label:"— Prefiero no decir" },
         ];
         return (
           <>
             <div onClick={() => setEditTarget(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:100, backdropFilter:"blur(3px)" }} />
-            <div style={{
-              position:"fixed", top:"50%", left:"50%",
-              transform:"translate(-50%, -50%)",
-              width:"min(540px, 95vw)", maxHeight:"90vh",
-              background:"var(--bg-card)", borderRadius:20,
-              border:"1px solid var(--border-light)",
-              boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
-              zIndex:101, display:"flex", flexDirection:"column",
-              animation:"modalIn .2s ease",
-            }}>
-              {/* Header */}
+            <div style={{ position:"fixed", top:"50%", left:"50%", transform:"translate(-50%, -50%)", width:"min(540px, 95vw)", maxHeight:"90vh", background:"var(--bg-card)", borderRadius:20, border:"1px solid var(--border-light)", boxShadow:"0 20px 60px rgba(0,0,0,0.3)", zIndex:101, display:"flex", flexDirection:"column", animation:"modalIn .2s ease" }}>
               <div style={{ padding:"20px 24px 16px", borderBottom:"1px solid var(--border-light)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                   <div style={{ width:42, height:42, borderRadius:"50%", background:`${editTarget.color}20`, color:editTarget.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:600, fontFamily:"var(--font-dm-sans)", border:`2px solid ${editTarget.color}40` }}>
-                    {getInitials(eFirstName || (editTarget.name.split(" ")[0] ?? ""), eLastName || (editTarget.name.split(" ")[1] ?? ""))}
+                    {getInitials(eFirstName||(editTarget.name.split(" ")[0]??""), eLastName||(editTarget.name.split(" ")[1]??""))}
                   </div>
                   <div>
                     <div style={{ fontFamily:"var(--font-lora)", fontSize:16, fontWeight:600, color:"var(--text-primary)" }}>Editar paciente</div>
@@ -972,65 +1172,43 @@ export function PacientesView() {
                 </div>
                 <button onClick={() => setEditTarget(null)} style={{ background:"transparent", border:"none", cursor:"pointer", color:"var(--text-muted)", fontSize:18 }}>✕</button>
               </div>
-
-              {/* Body */}
               <div style={{ padding:"20px 24px", overflowY:"auto", flex:1, display:"flex", flexDirection:"column", gap:14 }}>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                  <div>
-                    <label style={labelStyle}>Nombre *</label>
-                    <input className="np-input" value={eFirstName} onChange={e => setEFirstName(e.target.value)} placeholder="Nombre" style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Apellido *</label>
-                    <input className="np-input" value={eLastName} onChange={e => setELastName(e.target.value)} placeholder="Apellido" style={inputStyle} />
-                  </div>
+                  <div><label style={labelStyle}>Nombre *</label><input className="np-input" value={eFirstName} onChange={e => setEFirstName(e.target.value)} placeholder="Nombre" style={inputStyle} /></div>
+                  <div><label style={labelStyle}>Apellido *</label><input className="np-input" value={eLastName} onChange={e => setELastName(e.target.value)} placeholder="Apellido" style={inputStyle} /></div>
                 </div>
-
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                   <div>
                     <label style={labelStyle}>Fecha de nacimiento</label>
                     <input className="np-input" type="date" value={eBirthDate} onChange={e => setEBirthDate(e.target.value)} style={{ ...inputStyle, colorScheme:"dark" }} />
                     {eBirthDate && <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:"11px", color:"var(--text-muted)", marginTop:4 }}>{calcAge(eBirthDate)} años</div>}
                   </div>
-                  <div>
-                    <label style={labelStyle}>Teléfono</label>
-                    <input className="np-input" value={ePhone} onChange={e => setEPhone(e.target.value)} placeholder="+52 55 1234 5678" style={inputStyle} />
-                  </div>
+                  <div><label style={labelStyle}>Teléfono</label><input className="np-input" value={ePhone} onChange={e => setEPhone(e.target.value)} placeholder="+52 55 1234 5678" style={inputStyle} /></div>
                 </div>
-
-                <div>
-                  <label style={labelStyle}>Correo electrónico</label>
-                  <input className="np-input" type="email" value={eEmail} onChange={e => setEEmail(e.target.value)} placeholder="paciente@email.com" style={inputStyle} />
-                </div>
-
+                <div><label style={labelStyle}>Correo electrónico</label><input className="np-input" type="email" value={eEmail} onChange={e => setEEmail(e.target.value)} placeholder="paciente@email.com" style={inputStyle} /></div>
                 <div>
                   <label style={labelStyle}>Género</label>
                   <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7 }}>
                     {GENDER_OPTIONS.map(g => (
-                      <button key={g.val} onClick={() => setEGender(g.val === eGender ? "" : g.val)}
+                      <button key={g.val} onClick={() => setEGender(g.val===eGender?"":g.val)}
                         style={{ padding:"8px 10px", border:`1px solid ${eGender===g.val?"var(--accent)":"var(--border)"}`, borderRadius:10, cursor:"pointer", fontFamily:"var(--font-dm-sans)", fontSize:"12px", fontWeight:500, transition:"all .15s", textAlign:"left", background:eGender===g.val?"var(--accent-bg)":"var(--surface)", color:eGender===g.val?"var(--accent)":"var(--text-secondary)" }}>
                         {g.label}
                       </button>
                     ))}
                   </div>
                 </div>
-
                 <div>
                   <label style={labelStyle}>Diagnóstico <span style={{ fontWeight:400, textTransform:"none", letterSpacing:0, color:"var(--text-muted)" }}>(puedes elegir varios)</span></label>
                   <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
                     {DIAGNOSTICOS.map(d => {
-                      const isSelected = eDiagnosis.includes(d);
-                      return (
-                        <button key={d}
-                          onClick={() => setEDiagnosis(prev => isSelected ? prev.filter(x => x !== d) : [...prev, d])}
-                          style={{ padding:"6px 14px", borderRadius:20, border:"1px solid", cursor:"pointer", fontFamily:"var(--font-dm-sans)", fontSize:"12px", fontWeight:500, background:isSelected?"var(--accent)":"var(--surface)", borderColor:isSelected?"var(--accent)":"var(--border)", color:isSelected?"#FAF7F2":"var(--text-secondary)", transition:"all .15s" }}>
-                          {isSelected ? "✓ " : ""}{d}
-                        </button>
-                      );
+                      const isSel = eDiagnosis.includes(d);
+                      return <button key={d} onClick={() => setEDiagnosis(prev => isSel?prev.filter(x=>x!==d):[...prev,d])}
+                        style={{ padding:"6px 14px", borderRadius:20, border:"1px solid", cursor:"pointer", fontFamily:"var(--font-dm-sans)", fontSize:"12px", fontWeight:500, background:isSel?"var(--accent)":"var(--surface)", borderColor:isSel?"var(--accent)":"var(--border)", color:isSel?"#FAF7F2":"var(--text-secondary)", transition:"all .15s" }}>
+                        {isSel?"✓ ":""}{d}
+                      </button>;
                     })}
                   </div>
                 </div>
-
                 <div>
                   <label style={labelStyle}>Estado</label>
                   <div style={{ display:"flex", background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, padding:3, gap:2 }}>
@@ -1042,42 +1220,20 @@ export function PacientesView() {
                     ))}
                   </div>
                 </div>
-
-                <div>
-                  <label style={labelStyle}>Notas</label>
-                  <textarea className="np-input" value={eNotes} onChange={e => setENotes(e.target.value)} placeholder="Observaciones..." rows={3} style={{ ...inputStyle, resize:"none", lineHeight:1.5 }} />
-                </div>
-
-                {editError && (
-                  <div style={{ padding:"10px 14px", borderRadius:10, background:"var(--red-bg)", border:"1px solid var(--red)33", fontFamily:"var(--font-dm-sans)", fontSize:"12px", color:"var(--red)" }}>
-                    ⚠ {editError}
-                  </div>
-                )}
+                <div><label style={labelStyle}>Notas</label><textarea className="np-input" value={eNotes} onChange={e => setENotes(e.target.value)} placeholder="Observaciones..." rows={3} style={{ ...inputStyle, resize:"none", lineHeight:1.5 }} /></div>
+                {editError && <div style={{ padding:"10px 14px", borderRadius:10, background:"var(--red-bg)", border:"1px solid var(--red)33", fontFamily:"var(--font-dm-sans)", fontSize:"12px", color:"var(--red)" }}>⚠ {editError}</div>}
               </div>
-
-              {/* Footer */}
               <div style={{ padding:"16px 24px", borderTop:"1px solid var(--border-light)", display:"flex", gap:10, justifyContent:"flex-end" }}>
                 <button className="btn-g" onClick={() => setEditTarget(null)} style={{ padding:"0 20px", height:38 }}>Cancelar</button>
-                <button
-                  onClick={handleEditSave}
-                  disabled={!eFirstName.trim() || !eLastName.trim() || editLoading}
-                  style={{
-                    padding:"0 24px", height:38, borderRadius:10, border:"none",
-                    background: eFirstName.trim() && eLastName.trim() && !editLoading ? "var(--accent)" : "var(--border)",
-                    color: eFirstName.trim() && eLastName.trim() && !editLoading ? "#FAF7F2" : "var(--text-muted)",
-                    fontFamily:"var(--font-dm-sans)", fontSize:"13px", fontWeight:500,
-                    cursor: eFirstName.trim() && eLastName.trim() && !editLoading ? "pointer" : "not-allowed",
-                    transition:"all .15s",
-                  }}
-                >
-                  {editLoading ? "Guardando..." : "✓ Guardar cambios"}
+                <button onClick={handleEditSave} disabled={!eFirstName.trim()||!eLastName.trim()||editLoading}
+                  style={{ padding:"0 24px", height:38, borderRadius:10, border:"none", background:eFirstName.trim()&&eLastName.trim()&&!editLoading?"var(--accent)":"var(--border)", color:eFirstName.trim()&&eLastName.trim()&&!editLoading?"#FAF7F2":"var(--text-muted)", fontFamily:"var(--font-dm-sans)", fontSize:"13px", fontWeight:500, cursor:eFirstName.trim()&&eLastName.trim()&&!editLoading?"pointer":"not-allowed", transition:"all .15s" }}>
+                  {editLoading?"Guardando...":"✓ Guardar cambios"}
                 </button>
               </div>
             </div>
           </>
         );
       })()}
-
     </div>
   );
 }

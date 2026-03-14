@@ -182,6 +182,9 @@ function RegisterForm() {
               <option>Sistémica / Familiar</option>
               <option>Neuropsicología</option>
               <option>Infantil y Adolescentes</option>
+              <option>Conductista</option>
+              <option>Terapia Ludica</option>
+              <option>Logo Terapia</option>
               <option>Otra</option>
             </select>
           </div>

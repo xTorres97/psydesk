@@ -9,9 +9,9 @@ import type { Theme, Density } from "@/context/PreferencesContext";
 
 type ConfigSection = "perfil" | "consultorio" | "notificaciones" | "seguridad" | "facturacion" | "apariencia" | "integraciones";
 
+// ── "consultorio" está en el tipo pero NO en la lista visible ────────────────
 const CONFIG_SECTIONS: { id: ConfigSection; icon: string; label: string; desc: string }[] = [
   { id:"perfil",         icon:"👤", label:"Perfil profesional", desc:"Datos personales y credenciales"   },
-  { id:"consultorio",    icon:"🏥", label:"Consultorio",        desc:"Horarios, dirección y políticas"   },
   { id:"notificaciones", icon:"🔔", label:"Notificaciones",     desc:"Recordatorios y alertas"           },
   { id:"seguridad",      icon:"🔐", label:"Seguridad",          desc:"Contraseña y autenticación"        },
   { id:"facturacion",    icon:"💳", label:"Facturación",        desc:"Plan, pagos y suscripción"         },
@@ -41,8 +41,43 @@ const INTEGRATION_NAMES: Record<string, string> = {
   drive:    "Google Drive",
 };
 
-const MAX_AVATAR_HISTORY = 5;
-const MAX_ACTIVE_SESSIONS = 2; // máximo de sesiones activas guardadas
+const MAX_AVATAR_HISTORY  = 5;
+const MAX_ACTIVE_SESSIONS = 2;
+
+// ── Tipo de título profesional ────────────────────────────────────────────────
+type Titulo = "dr" | "dra" | "psic" | "";
+
+// Mapeo de valor guardado en BD → texto mostrado en UI
+const TITULO_LABEL: Record<Titulo, string> = {
+  dr:   "Dr.",
+  dra:  "Dra.",
+  psic: "Psic.",
+  "":   "",
+};
+
+// ── Formatea teléfono venezolano: +58 XXX XXXX XXX ───────────────────────────
+function formatPhoneVE(raw: string): string {
+  // Conservar solo dígitos y el + inicial
+  const digits = raw.replace(/[^\d]/g, "");
+
+  if (digits.length === 0) return "";
+
+  // Si el usuario ya escribió el +58 lo removemos para trabajar solo con dígitos
+  // El número venezolano tiene estructura: 58 + 3 + 4 + 3 = 12 dígitos con código país
+  // o 10 dígitos locales (0XXX XXXX XXX)
+  let national = digits;
+  if (national.startsWith("58")) national = national.slice(2);
+  if (national.startsWith("0"))  national = national.slice(1);
+
+  // Aplicar máscara: XXX XXXX XXX (máx 10 dígitos nacionales)
+  const d = national.slice(0, 10);
+  let result = "";
+  if (d.length <= 3)       result = d;
+  else if (d.length <= 7)  result = `${d.slice(0,3)} ${d.slice(3)}`;
+  else                     result = `${d.slice(0,3)} ${d.slice(3,7)} ${d.slice(7)}`;
+
+  return d.length > 0 ? `+58 ${result}` : "";
+}
 
 // ── Comprime una imagen usando canvas ────────────────────────────────────────
 async function compressImage(file: File, maxSize = 400, quality = 0.85): Promise<Blob> {
@@ -59,7 +94,10 @@ async function compressImage(file: File, maxSize = 400, quality = 0.85): Promise
       canvas.height = height;
       const ctx = canvas.getContext("2d")!;
       ctx.drawImage(img, 0, 0, width, height);
-      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Compresión fallida")), "image/jpeg", quality);
+      canvas.toBlob(
+        blob => blob ? resolve(blob) : reject(new Error("Compresión fallida")),
+        "image/jpeg", quality,
+      );
     };
     img.onerror = reject;
     img.src = url;
@@ -114,16 +152,12 @@ function AvatarModal({
           <div style={{ fontFamily:"var(--font-lora)", fontSize:16, fontWeight:600, color:"var(--text-primary)" }}>Foto de perfil</div>
           <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:"var(--text-muted)", lineHeight:1 }}>×</button>
         </div>
-
-        {/* Avatar actual */}
         <div style={{ display:"flex", justifyContent:"center", marginBottom:20 }}>
           {currentUrl
             ? <img src={currentUrl} alt="" style={{ width:96, height:96, borderRadius:"50%", objectFit:"cover", border:"3px solid var(--accent)" }} />
             : <div style={{ width:96, height:96, borderRadius:"50%", background:"var(--surface-2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:36, border:"3px solid var(--accent)" }}>👤</div>
           }
         </div>
-
-        {/* Historial */}
         {history.length > 0 && (
           <div style={{ marginBottom:20 }}>
             <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:12, color:"var(--text-muted)", marginBottom:10, fontWeight:500 }}>Fotos anteriores</div>
@@ -136,8 +170,8 @@ function AvatarModal({
                   title="Usar esta foto">
                   <img src={url} alt="" style={{ width:60, height:60, objectFit:"cover", display:"block" }} />
                   <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.0)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, opacity:0, transition:"opacity .15s" }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.opacity = "1"; (e.currentTarget as HTMLDivElement).style.background = "rgba(0,0,0,.35)"; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.opacity = "0"; (e.currentTarget as HTMLDivElement).style.background = "rgba(0,0,0,.0)"; }}>
+                    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.opacity="1"; (e.currentTarget as HTMLDivElement).style.background="rgba(0,0,0,.35)"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.opacity="0"; (e.currentTarget as HTMLDivElement).style.background="rgba(0,0,0,.0)"; }}>
                     ✓
                   </div>
                 </div>
@@ -145,8 +179,6 @@ function AvatarModal({
             </div>
           </div>
         )}
-
-        {/* Botones */}
         <button className="btn-p" style={{ width:"100%", justifyContent:"center", display:"flex", alignItems:"center", gap:8, opacity:uploading?0.7:1 }} onClick={onUpload} disabled={uploading}>
           {uploading ? "⏳ Subiendo..." : "📷 Subir nueva foto"}
         </button>
@@ -159,14 +191,15 @@ function AvatarModal({
 }
 
 export function ConfiguracionView() {
-  const [section, setSection]       = useState<ConfigSection>("perfil");
-  const [toast, setToast]           = useState<{ msg: string; ok: boolean } | null>(null);
+  const [section, setSection] = useState<ConfigSection>("perfil");
+  const [toast, setToast]     = useState<{ msg: string; ok: boolean } | null>(null);
 
   const [savingProfile, setSavingProfile]       = useState(false);
   const [savingAppearance, setSavingAppearance] = useState(false);
   const [uploadingAvatar, setUploadingAvatar]   = useState(false);
   const [showAvatarModal, setShowAvatarModal]   = useState(false);
   const [avatarHistory, setAvatarHistory]       = useState<string[]>([]);
+
   const [notif, setNotif] = useState({
     emailReminder:true, smsReminder:false, whatsapp:true,
     sessionCancel:true, newPatient:true, testComplete:true,
@@ -179,32 +212,20 @@ export function ConfiguracionView() {
   const [confirmPass, setConfirmPass] = useState("");
   const [passLoading, setPassLoading] = useState(false);
 
-  // ── Seguridad real ────────────────────────────────────────────────────────
   type SessionLog = {
-    id: string;
-    device: string | null;
-    browser: string | null;
-    os: string | null;
-    location: string | null;
-    logged_in_at: string;
-    is_current: boolean;
+    id: string; device: string | null; browser: string | null;
+    os: string | null; location: string | null;
+    logged_in_at: string; is_current: boolean;
   };
   const [sessionLogs,     setSessionLogs]     = useState<SessionLog[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [autoLogoutMin,   setAutoLogoutMin]   = useState(30);
-  const [secPrefs, setSecPrefs] = useState({
-    auto_logout: true,
-    session_log: true,
-  });
+  const [secPrefs, setSecPrefs] = useState({ auto_logout: true, session_log: true });
   const [savingSec, setSavingSec] = useState(false);
 
   type IntegKey = "calendar" | "meet" | "drive";
-  const [integrations, setIntegrations] = useState<Record<IntegKey, boolean>>({
-    calendar: false, meet: false, drive: false,
-  });
-  const [integLoading, setIntegLoading] = useState<Record<IntegKey, boolean>>({
-    calendar: false, meet: false, drive: false,
-  });
+  const [integrations, setIntegrations] = useState<Record<IntegKey, boolean>>({ calendar:false, meet:false, drive:false });
+  const [integLoading, setIntegLoading] = useState<Record<IntegKey, boolean>>({ calendar:false, meet:false, drive:false });
 
   const {
     theme, accentColor, density,
@@ -220,16 +241,36 @@ export function ConfiguracionView() {
   const searchParams = useSearchParams();
   const router       = useRouter();
 
+  // ── Form — inicializado vacío, se sincroniza cuando llega el profile ──────
   const [form, setForm] = useState({
-    full_name:      profile?.full_name      ?? "",
-    sexo:           (profile?.sexo          ?? "") as "masculino" | "femenino" | "",
-    specialty:      profile?.specialty      ?? "",
-    phone:          profile?.phone          ?? "",
-    license_number: profile?.license_number ?? "",
-    clinic_name:    profile?.clinic_name    ?? "",
+    full_name:      "",
+    titulo:         "" as Titulo,
+    specialty:      "",
+    phone:          "",
+    license_number: "",
   });
 
-  // ── Cargar preferencias de seguridad desde Supabase ──────────────────────
+  // ── FIX: sincronizar form con profile cuando llega (incluso tras refresh) ─
+  useEffect(() => {
+    if (!profile) return;
+
+    // Convertir valor legacy de `sexo` → nuevo campo `titulo`
+    let titulo: Titulo = "";
+    const sexo = (profile as any).sexo as string | null;
+    if      (sexo === "masculino") titulo = "dr";
+    else if (sexo === "femenino")  titulo = "dra";
+    else if (sexo === "psic")      titulo = "psic";
+
+    setForm({
+      full_name:      profile.full_name      ?? "",
+      titulo,
+      specialty:      profile.specialty      ?? "",
+      phone:          profile.phone          ?? "",
+      license_number: profile.license_number ?? "",
+    });
+  }, [profile?.id, profile?.full_name, profile?.specialty, profile?.phone, profile?.license_number, (profile as any)?.sexo]);
+
+  // ── Cargar preferencias de seguridad ─────────────────────────────────────
   useEffect(() => {
     if (!profile?.id) return;
     supabase.from("profiles").select("preferences").eq("id", profile.id).single()
@@ -241,97 +282,45 @@ export function ConfiguracionView() {
       });
   }, [profile?.id]);
 
-  // ── Registrar sesión actual al cargar ─────────────────────────────────────
-  // Lógica: si ya existe una sesión con el mismo browser+os+device, actualiza
-  // su timestamp y la marca como actual en lugar de crear una nueva.
-  // Mantiene un máximo de MAX_ACTIVE_SESSIONS (2) sesiones en total.
+  // ── Registrar sesión actual ───────────────────────────────────────────────
   useEffect(() => {
     if (!profile?.id) return;
-
     const ua      = navigator.userAgent;
     const browser = ua.includes("Chrome") ? "Chrome" : ua.includes("Firefox") ? "Firefox" : ua.includes("Safari") ? "Safari" : "Otro";
     const os      = ua.includes("Windows") ? "Windows" : ua.includes("Mac") ? "macOS" : ua.includes("Linux") ? "Linux" : ua.includes("Android") ? "Android" : ua.includes("iPhone") ? "iOS" : "Otro";
     const device  = /Mobi|Android/i.test(ua) ? "Móvil" : "Escritorio";
 
     async function registerSession() {
-      // 1. Obtener todas las sesiones existentes
       const { data: existing } = await supabase
-        .from("session_logs")
-        .select("*")
-        .eq("profile_id", profile!.id)
+        .from("session_logs").select("*").eq("profile_id", profile!.id)
         .order("logged_in_at", { ascending: false });
-
       const all = existing ?? [];
-
-      // 2. Buscar si ya hay una sesión con el mismo fingerprint (mismo dispositivo)
-      const sameDevice = all.find(
-        s => s.browser === browser && s.os === os && s.device === device
-      );
+      const sameDevice = all.find(s => s.browser === browser && s.os === os && s.device === device);
 
       if (sameDevice) {
-        // Mismo ordenador — actualizar timestamp y marcar como actual
-        await supabase
-          .from("session_logs")
-          .update({ is_current: true, logged_in_at: new Date().toISOString() })
-          .eq("id", sameDevice.id);
-
-        // Desmarcar las demás como no actuales
+        await supabase.from("session_logs").update({ is_current:true, logged_in_at: new Date().toISOString() }).eq("id", sameDevice.id);
         const otherIds = all.filter(s => s.id !== sameDevice.id).map(s => s.id);
-        if (otherIds.length > 0) {
-          await supabase
-            .from("session_logs")
-            .update({ is_current: false })
-            .in("id", otherIds);
-        }
+        if (otherIds.length > 0) await supabase.from("session_logs").update({ is_current:false }).in("id", otherIds);
       } else {
-        // Dispositivo nuevo — desmarcar todas como no actuales
-        if (all.length > 0) {
-          await supabase
-            .from("session_logs")
-            .update({ is_current: false })
-            .eq("profile_id", profile!.id);
-        }
-
-        // Insertar nueva sesión
-        await supabase.from("session_logs").insert({
-          profile_id:   profile!.id,
-          device, browser, os,
-          location:     "—",
-          is_current:   true,
-          logged_in_at: new Date().toISOString(),
-        });
-
-        // 3. Si ahora hay más de MAX_ACTIVE_SESSIONS, eliminar las más antiguas
-        // (excepto la actual recién creada)
-        const { data: afterInsert } = await supabase
-          .from("session_logs")
-          .select("id, is_current")
-          .eq("profile_id", profile!.id)
-          .order("logged_in_at", { ascending: false });
-
+        if (all.length > 0) await supabase.from("session_logs").update({ is_current:false }).eq("profile_id", profile!.id);
+        await supabase.from("session_logs").insert({ profile_id:profile!.id, device, browser, os, location:"—", is_current:true, logged_in_at: new Date().toISOString() });
+        const { data: afterInsert } = await supabase.from("session_logs").select("id, is_current").eq("profile_id", profile!.id).order("logged_in_at", { ascending:false });
         const allAfter = afterInsert ?? [];
         if (allAfter.length > MAX_ACTIVE_SESSIONS) {
-          // Mantener las MAX_ACTIVE_SESSIONS más recientes, borrar el resto
           const toDelete = allAfter.slice(MAX_ACTIVE_SESSIONS).map(s => s.id);
           await supabase.from("session_logs").delete().in("id", toDelete);
         }
       }
-
       loadSessions();
     }
-
     registerSession();
   }, [profile?.id]);
 
   const loadSessions = async () => {
     if (!profile?.id) return;
     setLoadingSessions(true);
-    const { data } = await supabase
-      .from("session_logs")
-      .select("*")
-      .eq("profile_id", profile.id)
-      .order("logged_in_at", { ascending: false })
-      .limit(MAX_ACTIVE_SESSIONS);
+    const { data } = await supabase.from("session_logs").select("*").eq("profile_id", profile.id)
+      .order("logged_in_at", { ascending:false }).limit(MAX_ACTIVE_SESSIONS);
     setSessionLogs(data ?? []);
     setLoadingSessions(false);
   };
@@ -356,52 +345,34 @@ export function ConfiguracionView() {
     showToast("✓ Preferencias de seguridad guardadas");
   };
 
-  // ── Cargar historial de avatares ─────────────────────────────────────────
   useEffect(() => {
     if (!profile?.id) return;
-    supabase
-      .from("profiles")
-      .select("avatar_history")
-      .eq("id", profile.id)
-      .single()
-      .then(({ data }) => {
-        if (data?.avatar_history) setAvatarHistory(data.avatar_history);
-      });
+    supabase.from("profiles").select("avatar_history").eq("id", profile.id).single()
+      .then(({ data }) => { if (data?.avatar_history) setAvatarHistory(data.avatar_history); });
   }, [profile?.id]);
 
-  // ── Leer resultado del callback de Google al volver ───────────────────────
   useEffect(() => {
     const connected = searchParams.get("connected") as IntegKey | null;
     const sec       = searchParams.get("section") as ConfigSection | null;
     const error     = searchParams.get("error");
-
     if (sec) setSection(sec);
-
     if (connected && INTEGRATION_NAMES[connected]) {
       setIntegrations(p => ({ ...p, [connected]: true }));
       showToast(`✓ ${INTEGRATION_NAMES[connected]} conectado correctamente`);
       router.replace("/configuracion?section=integraciones");
     }
-
     if (error) {
-      const msg = error === "cancelled"
-        ? "Conexión cancelada."
-        : "Error al conectar con Google. Intenta de nuevo.";
-      showToast(msg, false);
+      showToast(error === "cancelled" ? "Conexión cancelada." : "Error al conectar con Google. Intenta de nuevo.", false);
       router.replace("/configuracion?section=integraciones");
     }
   }, []);
 
-  // ── Cargar integraciones desde Supabase ───────────────────────────────────
   useEffect(() => {
     if (!profile?.id) return;
-    supabase
-      .from("integrations")
-      .select("provider, connected")
-      .eq("profile_id", profile.id)
+    supabase.from("integrations").select("provider, connected").eq("profile_id", profile.id)
       .then(({ data }) => {
         if (!data) return;
-        const updated = { calendar: false, meet: false, drive: false };
+        const updated = { calendar:false, meet:false, drive:false };
         data.forEach((row: { provider: string; connected: boolean }) => {
           if (row.provider in updated) updated[row.provider as IntegKey] = row.connected;
         });
@@ -423,17 +394,22 @@ export function ConfiguracionView() {
   const handleSavePerfil = async () => {
     if (!profile?.id) return;
     setSavingProfile(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        full_name:      form.full_name,
-        sexo:           form.sexo || null,
-        specialty:      form.specialty,
-        phone:          form.phone,
-        license_number: form.license_number,
-        clinic_name:    form.clinic_name,
-      })
-      .eq("id", profile.id);
+
+    // Convertir titulo → valor compatible con columna `sexo` en BD
+    // (la columna tiene check constraint: masculino | femenino — extendemos con psic)
+    const sexoValue = form.titulo === "dr" ? "masculino"
+      : form.titulo === "dra"  ? "femenino"
+      : form.titulo === "psic" ? "psic"
+      : null;
+
+    const { error } = await supabase.from("profiles").update({
+      full_name:      form.full_name,
+      sexo:           sexoValue,
+      specialty:      form.specialty,
+      phone:          form.phone,
+      license_number: form.license_number,
+    }).eq("id", profile.id);
+
     await refreshProfile();
     setSavingProfile(false);
     error ? showToast("Error al guardar. Intenta de nuevo.", false) : showToast("✓ Perfil actualizado");
@@ -446,31 +422,22 @@ export function ConfiguracionView() {
     showToast("✓ Preferencias de apariencia guardadas");
   };
 
-  // ── Subir nueva foto (con compresión) ─────────────────────────────────────
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !profile?.id) return;
     e.target.value = "";
     setUploadingAvatar(true);
-
     try {
       const compressed = await compressImage(file);
       const path       = `avatars/${profile.id}.jpg`;
-
       const currentHistory = [...avatarHistory];
       if (profile.avatar_url) {
-        const newHistory = [profile.avatar_url, ...currentHistory.filter(u => u !== profile.avatar_url)]
-          .slice(0, MAX_AVATAR_HISTORY);
+        const newHistory = [profile.avatar_url, ...currentHistory.filter(u => u !== profile.avatar_url)].slice(0, MAX_AVATAR_HISTORY);
         setAvatarHistory(newHistory);
         await supabase.from("profiles").update({ avatar_history: newHistory }).eq("id", profile.id);
       }
-
-      const { error: uploadError } = await supabase.storage
-        .from("profiles")
-        .upload(path, compressed, { upsert: true, contentType: "image/jpeg" });
-
+      const { error: uploadError } = await supabase.storage.from("profiles").upload(path, compressed, { upsert:true, contentType:"image/jpeg" });
       if (uploadError) { showToast("Error al subir la foto.", false); setUploadingAvatar(false); return; }
-
       const { data } = supabase.storage.from("profiles").getPublicUrl(path);
       const urlWithBust = `${data.publicUrl}?t=${Date.now()}`;
       await supabase.from("profiles").update({ avatar_url: urlWithBust }).eq("id", profile.id);
@@ -484,21 +451,11 @@ export function ConfiguracionView() {
     }
   };
 
-  // ── Restaurar avatar desde historial ─────────────────────────────────────
   const handleSelectHistoryAvatar = async (url: string) => {
     if (!profile?.id) return;
     setUploadingAvatar(true);
-
-    const newHistory = [
-      ...(profile.avatar_url ? [profile.avatar_url] : []),
-      ...avatarHistory.filter(u => u !== url),
-    ].slice(0, MAX_AVATAR_HISTORY);
-
-    await supabase.from("profiles").update({
-      avatar_url:     url,
-      avatar_history: newHistory,
-    }).eq("id", profile.id);
-
+    const newHistory = [...(profile.avatar_url ? [profile.avatar_url] : []), ...avatarHistory.filter(u => u !== url)].slice(0, MAX_AVATAR_HISTORY);
+    await supabase.from("profiles").update({ avatar_url: url, avatar_history: newHistory }).eq("id", profile.id);
     setAvatarHistory(newHistory);
     await refreshProfile();
     setShowAvatarModal(false);
@@ -507,9 +464,9 @@ export function ConfiguracionView() {
   };
 
   const handleChangePassword = async () => {
-    if (!newPass || !confirmPass)   { showToast("Completa todos los campos.", false); return; }
-    if (newPass.length < 8)         { showToast("Mínimo 8 caracteres.", false); return; }
-    if (newPass !== confirmPass)    { showToast("Las contraseñas no coinciden.", false); return; }
+    if (!newPass || !confirmPass) { showToast("Completa todos los campos.", false); return; }
+    if (newPass.length < 8)       { showToast("Mínimo 8 caracteres.", false); return; }
+    if (newPass !== confirmPass)  { showToast("Las contraseñas no coinciden.", false); return; }
     setPassLoading(true);
     const { error } = await supabase.auth.updateUser({ password: newPass });
     setPassLoading(false);
@@ -525,9 +482,7 @@ export function ConfiguracionView() {
     const clientId    = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
     const state       = encodeURIComponent(JSON.stringify({ integration: key }));
     const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scopes}&access_type=offline&prompt=consent&state=${state}`;
-    await supabase.from("integrations").upsert({
-      profile_id: profile.id, provider: key, connected: false, status: "pending",
-    }, { onConflict: "profile_id,provider" });
+    await supabase.from("integrations").upsert({ profile_id: profile.id, provider: key, connected: false, status: "pending" }, { onConflict: "profile_id,provider" });
     setIntegLoading(p => ({ ...p, [key]: false }));
     window.location.href = url;
   };
@@ -535,10 +490,7 @@ export function ConfiguracionView() {
   const handleDisconnect = async (key: IntegKey) => {
     if (!profile?.id) return;
     setIntegLoading(p => ({ ...p, [key]: true }));
-    await supabase.from("integrations").upsert({
-      profile_id: profile.id, provider: key, connected: false, status: "disconnected",
-      access_token: null, refresh_token: null,
-    }, { onConflict: "profile_id,provider" });
+    await supabase.from("integrations").upsert({ profile_id: profile.id, provider: key, connected: false, status: "disconnected", access_token: null, refresh_token: null }, { onConflict: "profile_id,provider" });
     setIntegrations(p => ({ ...p, [key]: false }));
     setIntegLoading(p => ({ ...p, [key]: false }));
     showToast(`✓ ${INTEGRATION_NAMES[key]} desconectado`);
@@ -551,16 +503,28 @@ export function ConfiguracionView() {
   };
 
   const isSaving = savingProfile || savingAppearance;
-  const initials  = profile?.full_name
+
+  const initials = profile?.full_name
     ? profile.full_name.split(" ").map((n: string) => n[0]).slice(0, 2).join("").toUpperCase()
     : "?";
-  const titulo  = profile?.sexo === "femenino" ? "Dra." : profile?.sexo === "masculino" ? "Dr." : "";
-  const current = CONFIG_SECTIONS.find(s => s.id === section)!;
+
+  // Título que se muestra en el header del perfil
+  const tituloDisplay = TITULO_LABEL[form.titulo] || "";
+
+  const current = CONFIG_SECTIONS.find(s => s.id === section) ?? CONFIG_SECTIONS[0];
 
   const INTEGRATIONS: { key: IntegKey; icon: string; name: string; desc: string; color: string; badge?: string }[] = [
     { key:"calendar", icon:"📅", name:"Google Calendar", desc:"Sincroniza citas automáticamente con tu Google Calendar.",       color:"#4A7BA7" },
     { key:"meet",     icon:"🎥", name:"Google Meet",      desc:"Genera links de videollamada automáticos para sesiones online.", color:"#5C8A6E", badge:"Requiere Calendar conectado" },
-    { key:"drive",    icon:"☁️", name:"Google Drive",     desc:"Guarda y accede a archivos de pacientes directamente en Drive.",color:"#C47B2B" },
+    { key:"drive",    icon:"☁️", name:"Google Drive",     desc:"Guarda y accede a archivos de pacientes directamente en Drive.", color:"#C47B2B" },
+  ];
+
+  // Opciones de título
+  const TITULO_OPTIONS: { val: Titulo; label: string; emoji: string }[] = [
+    { val:"dr",   label:"Dr.",   emoji:"👨‍⚕️" },
+    { val:"dra",  label:"Dra.",  emoji:"👩‍⚕️" },
+    { val:"psic", label:"Psic.", emoji:"🧠"   },
+    { val:"",     label:"Ninguno", emoji:"—"  },
   ];
 
   return (
@@ -589,8 +553,8 @@ export function ConfiguracionView() {
         .acc-swatch:hover { transform:scale(1.1); }
         .acc-swatch.selected { border-color:var(--text-primary); transform:scale(1.18); box-shadow:0 2px 8px rgba(0,0,0,.25); }
         .acc-swatch.selected::after { content:'✓'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.5); }
-        .sexo-btn { flex:1; padding:10px 14px; border-radius:10px; cursor:pointer; font-family:var(--font-dm-sans); font-size:13px; font-weight:500; transition:all .15s; border:1.5px solid var(--border); background:var(--surface); color:var(--text-secondary); }
-        .sexo-btn.active { border-color:var(--accent); background:var(--accent-bg); color:var(--accent); }
+        .titulo-btn { flex:1; padding:10px 8px; border-radius:10px; cursor:pointer; font-family:var(--font-dm-sans); font-size:13px; font-weight:500; transition:all .15s; border:1.5px solid var(--border); background:var(--surface); color:var(--text-secondary); text-align:center; }
+        .titulo-btn.active { border-color:var(--accent); background:var(--accent-bg); color:var(--accent); }
         .avatar-wrap { position:relative; width:72px; height:72px; cursor:pointer; }
         .avatar-wrap:hover .avatar-overlay { opacity:1; }
         .avatar-overlay { position:absolute; inset:0; border-radius:50%; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .2s; font-size:18px; }
@@ -598,7 +562,6 @@ export function ConfiguracionView() {
         .integ-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08); }
       `}</style>
 
-      {/* Modal de avatar */}
       {showAvatarModal && (
         <AvatarModal
           currentUrl={profile?.avatar_url ?? null}
@@ -612,14 +575,14 @@ export function ConfiguracionView() {
 
       <input ref={fileInputRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleAvatarChange} />
 
-      {/* Menú lateral */}
+      {/* Menú lateral — sin "Consultorio" */}
       <div className="cfg-sidebar" style={{ width:230, flexShrink:0, borderRight:"1px solid var(--border-light)", background:"var(--bg-card)", padding:"16px 10px", overflowY:"auto", borderRadius:16, marginRight:20, flexDirection:"column" }}>
         <div style={{ fontFamily:"var(--font-lora)", fontSize:15, fontWeight:600, color:"var(--text-primary)", padding:"4px 10px", marginBottom:14 }}>Configuración</div>
         {CONFIG_SECTIONS.map(s => (
           <div key={s.id} onClick={() => setSection(s.id)}
             style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:12, cursor:"pointer", transition:"all .15s", marginBottom:2, background:section===s.id?"var(--accent-bg)":"transparent", borderLeft:`3px solid ${section===s.id?"var(--accent)":"transparent"}` }}
-            onMouseEnter={e => { if (section!==s.id) (e.currentTarget as HTMLDivElement).style.background="var(--surface)"; }}
-            onMouseLeave={e => { if (section!==s.id) (e.currentTarget as HTMLDivElement).style.background="transparent"; }}
+            onMouseEnter={e => { if(section!==s.id)(e.currentTarget as HTMLDivElement).style.background="var(--surface)"; }}
+            onMouseLeave={e => { if(section!==s.id)(e.currentTarget as HTMLDivElement).style.background="transparent"; }}
           >
             <span style={{ fontSize:17, flexShrink:0 }}>{s.icon}</span>
             <div>
@@ -634,6 +597,7 @@ export function ConfiguracionView() {
       <div style={{ flex:1, overflowY:"auto" }}>
         <div style={{ maxWidth:640 }}>
 
+          {/* Select móvil — sin "Consultorio" */}
           <div className="cfg-mobile-select" style={{ alignItems:"center", gap:10, marginBottom:20 }}>
             <select value={section} onChange={e => setSection(e.target.value as ConfigSection)}
               style={{ flex:1, border:"1px solid var(--border)", borderRadius:10, padding:"9px 12px", background:"var(--surface)", color:"var(--text-primary)", fontFamily:"var(--font-dm-sans)", fontSize:13, outline:"none" }}>
@@ -658,6 +622,7 @@ export function ConfiguracionView() {
           {section === "perfil" && (
             <>
               <CardSection>
+                {/* Avatar + nombre */}
                 <div style={{ display:"flex", gap:16, alignItems:"center", marginBottom:20, flexWrap:"wrap" }}>
                   <div className="avatar-wrap" onClick={() => setShowAvatarModal(true)}>
                     {profile?.avatar_url
@@ -668,7 +633,7 @@ export function ConfiguracionView() {
                   </div>
                   <div>
                     <div style={{ fontFamily:"var(--font-lora)", fontSize:16, fontWeight:600, color:"var(--text-primary)" }}>
-                      {titulo && <span style={{ color:"var(--text-muted)", marginRight:4 }}>{titulo}</span>}
+                      {tituloDisplay && <span style={{ color:"var(--text-muted)", marginRight:4 }}>{tituloDisplay}</span>}
                       {profile?.full_name ?? "—"}
                     </div>
                     <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:12, color:"var(--text-muted)", marginBottom:8 }}>{profile?.email ?? ""}</div>
@@ -684,6 +649,8 @@ export function ConfiguracionView() {
                     </div>
                   </div>
                 </div>
+
+                {/* Campos de datos */}
                 <div className="cfg-grid-2">
                   <Field label="Nombre completo">
                     <input style={inputStyle} value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Laura Martínez Reyes" />
@@ -701,29 +668,48 @@ export function ConfiguracionView() {
                       <option>Sistémica / Familiar</option>
                       <option>Neuropsicología</option>
                       <option>Infantil y Adolescentes</option>
+                      <option>Conductista</option>
+                      <option>Terapia Lúdica</option>
+                      <option>Logoterapia</option>
                       <option>Otra</option>
                     </select>
                   </Field>
                   <Field label="Teléfono">
-                    <input style={inputStyle} value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+52 55 9999 0000" />
+                    <input
+                      style={inputStyle}
+                      value={form.phone}
+                      placeholder="+58 123 4567 890"
+                      onChange={e => {
+                        const formatted = formatPhoneVE(e.target.value);
+                        setForm(f => ({ ...f, phone: formatted }));
+                      }}
+                    />
                   </Field>
                 </div>
-                <Field label="Sexo" hint="Define si se muestra Dr. o Dra. en la interfaz">
+
+                {/* Campo Título */}
+                <Field label="Título" hint="Se muestra antes de tu nombre en la interfaz">
                   <div style={{ display:"flex", gap:8 }}>
-                    <button className={`sexo-btn${form.sexo === "masculino" ? " active" : ""}`} onClick={() => setForm(f => ({ ...f, sexo: "masculino" }))}>👨‍⚕️ Dr. (Masculino)</button>
-                    <button className={`sexo-btn${form.sexo === "femenino" ? " active" : ""}`}  onClick={() => setForm(f => ({ ...f, sexo: "femenino" }))}>👩‍⚕️ Dra. (Femenino)</button>
+                    {TITULO_OPTIONS.map(opt => (
+                      <button
+                        key={opt.val}
+                        className={`titulo-btn${form.titulo === opt.val ? " active" : ""}`}
+                        onClick={() => setForm(f => ({ ...f, titulo: opt.val }))}
+                      >
+                        <span style={{ display:"block", fontSize:16, marginBottom:3 }}>{opt.emoji}</span>
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
                 </Field>
-                <Field label="Nombre del consultorio">
-                  <input style={inputStyle} value={form.clinic_name} onChange={e => setForm(f => ({ ...f, clinic_name: e.target.value }))} placeholder="Consultorio Dra. Laura Martínez" />
-                </Field>
               </CardSection>
+
               <CardSection>
                 <SecTitle>Formación y certificaciones</SecTitle>
                 {[
                   { title:"Maestría en Psicología Clínica", inst:"UNAM",          year:"2018" },
                   { title:"Certificación TCC",              inst:"Beck Institute", year:"2020" },
-                ].map((c,i) => (
+                ].map((c, i) => (
                   <Row key={i}>
                     <div>
                       <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-primary)", fontWeight:500 }}>{c.title}</div>
@@ -733,53 +719,6 @@ export function ConfiguracionView() {
                   </Row>
                 ))}
                 <button className="btn-g" style={{ marginTop:12, fontSize:12 }}>+ Agregar certificación</button>
-              </CardSection>
-            </>
-          )}
-
-          {/* ── CONSULTORIO ── */}
-          {section === "consultorio" && (
-            <>
-              <CardSection>
-                <SecTitle>Datos del consultorio</SecTitle>
-                <Field label="Nombre del consultorio"><input style={inputStyle} defaultValue="Consultorio Dra. Laura Martínez" /></Field>
-                <Field label="Dirección"><input style={inputStyle} defaultValue="Av. Insurgentes Sur 1234, Col. Del Valle, CDMX" /></Field>
-                <div className="cfg-grid-2">
-                  <Field label="Duración por defecto">
-                    <select style={inputStyle}><option>50 minutos</option><option>45 minutos</option><option>60 minutos</option><option>80 minutos</option></select>
-                  </Field>
-                  <Field label="Tiempo entre citas">
-                    <select style={inputStyle}><option>10 minutos</option><option>15 minutos</option><option>20 minutos</option></select>
-                  </Field>
-                </div>
-              </CardSection>
-              <CardSection>
-                <SecTitle>Horario de atención</SecTitle>
-                {["Lunes","Martes","Miércoles","Jueves","Viernes"].map((d,i) => (
-                  <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:"1px solid var(--border-light)", flexWrap:"wrap" }}>
-                    <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-primary)", width:80, flexShrink:0 }}>{d}</span>
-                    <input style={{ ...inputStyle, width:86 }} defaultValue="09:00" type="time" />
-                    <span style={{ color:"var(--text-muted)", fontSize:12 }}>—</span>
-                    <input style={{ ...inputStyle, width:86 }} defaultValue="18:00" type="time" />
-                    <Toggle checked={true} onChange={() => {}} />
-                  </div>
-                ))}
-                {["Sábado","Domingo"].map((d,i) => (
-                  <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i===0?"1px solid var(--border-light)":"none" }}>
-                    <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-muted)", width:80 }}>{d}</span>
-                    <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:12, color:"var(--text-muted)", flex:1 }}>No disponible</span>
-                    <Toggle checked={false} onChange={() => {}} />
-                  </div>
-                ))}
-              </CardSection>
-              <CardSection>
-                <SecTitle>Políticas de cancelación</SecTitle>
-                <Field label="Aviso mínimo para cancelar sin penalización">
-                  <select style={inputStyle}><option>24 horas</option><option>48 horas</option><option>72 horas</option><option>Sin política</option></select>
-                </Field>
-                <Field label="Mensaje para pacientes al confirmar cita">
-                  <textarea style={{ ...inputStyle, minHeight:80, resize:"vertical" } as React.CSSProperties} defaultValue="Recuerda que debes confirmar o cancelar tu cita con al menos 24 horas de anticipación." />
-                </Field>
               </CardSection>
             </>
           )}
@@ -806,9 +745,9 @@ export function ConfiguracionView() {
               <CardSection>
                 <SecTitle>Canales de envío</SecTitle>
                 {([
-                  { key:"emailReminder", label:"Correo electrónico", desc:"Requiere email del paciente"  },
-                  { key:"smsReminder",   label:"SMS",                desc:"Costo adicional por mensaje"  },
-                  { key:"whatsapp",      label:"WhatsApp",           desc:"Requiere integración activa"  },
+                  { key:"emailReminder", label:"Correo electrónico", desc:"Requiere email del paciente" },
+                  { key:"smsReminder",   label:"SMS",                desc:"Costo adicional por mensaje" },
+                  { key:"whatsapp",      label:"WhatsApp",           desc:"Requiere integración activa" },
                 ] as { key: keyof typeof notif; label: string; desc: string }[]).map(n => (
                   <Row key={n.key}>
                     <div style={{ flex:1, minWidth:0 }}>
@@ -866,7 +805,6 @@ export function ConfiguracionView() {
                     {savingSec ? "Guardando..." : "Guardar"}
                   </button>
                 </div>
-
                 <Row>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -877,7 +815,6 @@ export function ConfiguracionView() {
                   </div>
                   <Toggle checked={false} onChange={() => showToast("2FA estará disponible próximamente.", false)} color="var(--green)" />
                 </Row>
-
                 <Row>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, color:"var(--text-primary)" }}>Cierre de sesión automático</div>
@@ -888,8 +825,7 @@ export function ConfiguracionView() {
                 {secPrefs.auto_logout && (
                   <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:"var(--surface)", borderRadius:10, marginTop:8, marginBottom:4 }}>
                     <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:12, color:"var(--text-secondary)", flex:1 }}>Tiempo de inactividad</span>
-                    <select value={autoLogoutMin} onChange={e => setAutoLogoutMin(Number(e.target.value))}
-                      style={{ ...inputStyle, width:"auto", padding:"6px 10px" }}>
+                    <select value={autoLogoutMin} onChange={e => setAutoLogoutMin(Number(e.target.value))} style={{ ...inputStyle, width:"auto", padding:"6px 10px" }}>
                       <option value={15}>15 minutos</option>
                       <option value={30}>30 minutos</option>
                       <option value={60}>1 hora</option>
@@ -899,7 +835,6 @@ export function ConfiguracionView() {
                 )}
               </CardSection>
 
-              {/* ── Sesiones activas — máximo 2, sin duplicados por dispositivo ── */}
               <CardSection>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
                   <div>
@@ -916,38 +851,35 @@ export function ConfiguracionView() {
                   <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-muted)", padding:"12px 0" }}>Cargando sesiones...</div>
                 ) : sessionLogs.length === 0 ? (
                   <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-muted)", padding:"12px 0" }}>No hay sesiones registradas.</div>
-                ) : (
-                  sessionLogs.map((s) => {
-                    const when = new Date(s.logged_in_at);
-                    const diffMin = Math.round((Date.now() - when.getTime()) / 60000);
-                    const timeLabel = diffMin < 2 ? "Ahora mismo" : diffMin < 60 ? `Hace ${diffMin} min` : diffMin < 1440 ? `Hace ${Math.round(diffMin/60)}h` : `Hace ${Math.round(diffMin/1440)} días`;
-                    const icon = s.device === "Móvil" ? "📱" : "💻";
-                    return (
-                      <Row key={s.id}>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:"flex", alignItems:"center", gap:7, flexWrap:"wrap" }}>
-                            <span style={{ fontSize:15 }}>{icon}</span>
-                            <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-primary)", fontWeight:500 }}>
-                              {s.device ?? "Dispositivo"} · {s.browser ?? "Navegador"}
-                            </span>
-                            {s.is_current && (
-                              <span style={{ background:"var(--green-bg)", color:"var(--green)", padding:"1px 7px", borderRadius:10, fontSize:10, fontFamily:"var(--font-dm-sans)", fontWeight:600 }}>Actual</span>
-                            )}
-                          </div>
-                          <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)", marginLeft:22 }}>
-                            {s.os ?? ""}{s.os && " · "}{timeLabel}
-                          </div>
+                ) : sessionLogs.map(s => {
+                  const when    = new Date(s.logged_in_at);
+                  const diffMin = Math.round((Date.now() - when.getTime()) / 60000);
+                  const timeLabel = diffMin < 2 ? "Ahora mismo" : diffMin < 60 ? `Hace ${diffMin} min` : diffMin < 1440 ? `Hace ${Math.round(diffMin/60)}h` : `Hace ${Math.round(diffMin/1440)} días`;
+                  const icon = s.device === "Móvil" ? "📱" : "💻";
+                  return (
+                    <Row key={s.id}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:7, flexWrap:"wrap" }}>
+                          <span style={{ fontSize:15 }}>{icon}</span>
+                          <span style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, color:"var(--text-primary)", fontWeight:500 }}>
+                            {s.device ?? "Dispositivo"} · {s.browser ?? "Navegador"}
+                          </span>
+                          {s.is_current && (
+                            <span style={{ background:"var(--green-bg)", color:"var(--green)", padding:"1px 7px", borderRadius:10, fontSize:10, fontFamily:"var(--font-dm-sans)", fontWeight:600 }}>Actual</span>
+                          )}
                         </div>
-                        {!s.is_current && (
-                          <button className="btn-g" style={{ fontSize:11, padding:"5px 10px", color:"var(--red)", borderColor:"var(--red)" }}
-                            onClick={() => handleCloseSession(s.id)}>
-                            Cerrar
-                          </button>
-                        )}
-                      </Row>
-                    );
-                  })
-                )}
+                        <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:11, color:"var(--text-muted)", marginLeft:22 }}>
+                          {s.os ?? ""}{s.os && " · "}{timeLabel}
+                        </div>
+                      </div>
+                      {!s.is_current && (
+                        <button className="btn-g" style={{ fontSize:11, padding:"5px 10px", color:"var(--red)", borderColor:"var(--red)" }} onClick={() => handleCloseSession(s.id)}>
+                          Cerrar
+                        </button>
+                      )}
+                    </Row>
+                  );
+                })}
               </CardSection>
             </>
           )}
@@ -964,7 +896,7 @@ export function ConfiguracionView() {
                   <span style={{ background:"var(--accent-bg)", color:"var(--accent)", padding:"4px 12px", borderRadius:20, fontFamily:"var(--font-dm-sans)", fontSize:12, fontWeight:600 }}>Activo</span>
                 </div>
                 <div className="cfg-grid-3f" style={{ marginTop:16 }}>
-                  {[{ label:"Pacientes", val:"34 / ∞" }, { label:"Almacenamiento", val:"2.1 / 10 GB" }, { label:"Tests enviados", val:"12 / ∞" }].map((s,i) => (
+                  {[{ label:"Pacientes", val:"34 / ∞" }, { label:"Almacenamiento", val:"2.1 / 10 GB" }, { label:"Tests enviados", val:"12 / ∞" }].map((s, i) => (
                     <div key={i} style={{ background:"var(--surface)", borderRadius:10, padding:"10px 12px" }}>
                       <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:10, color:"var(--text-muted)", marginBottom:2 }}>{s.label}</div>
                       <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:14, fontWeight:600, color:"var(--text-primary)" }}>{s.val}</div>
@@ -1088,16 +1020,12 @@ export function ConfiguracionView() {
                       {integrations[t.key] ? (
                         <>
                           <span style={{ background:"var(--green-bg)", color:"var(--green)", padding:"4px 12px", borderRadius:20, fontFamily:"var(--font-dm-sans)", fontSize:12, fontWeight:500, display:"flex", alignItems:"center", gap:4 }}>✓ Conectado</span>
-                          <button className="btn-g"
-                            style={{ fontSize:12, padding:"6px 12px", color:"var(--red)", borderColor:"var(--red)", opacity:integLoading[t.key]?0.6:1 }}
-                            onClick={() => handleDisconnect(t.key)} disabled={integLoading[t.key]}>
+                          <button className="btn-g" style={{ fontSize:12, padding:"6px 12px", color:"var(--red)", borderColor:"var(--red)", opacity:integLoading[t.key]?0.6:1 }} onClick={() => handleDisconnect(t.key)} disabled={integLoading[t.key]}>
                             {integLoading[t.key] ? "..." : "Desconectar"}
                           </button>
                         </>
                       ) : (
-                        <button className="btn-p"
-                          style={{ fontSize:13, padding:"8px 16px", opacity:integLoading[t.key]?0.6:1, display:"flex", alignItems:"center", gap:6 }}
-                          onClick={() => handleConnectGoogle(t.key)} disabled={integLoading[t.key]}>
+                        <button className="btn-p" style={{ fontSize:13, padding:"8px 16px", opacity:integLoading[t.key]?0.6:1, display:"flex", alignItems:"center", gap:6 }} onClick={() => handleConnectGoogle(t.key)} disabled={integLoading[t.key]}>
                           {integLoading[t.key] ? "Redirigiendo..." : (
                             <>
                               <svg width="14" height="14" viewBox="0 0 24 24" style={{ flexShrink:0 }}>
@@ -1119,9 +1047,9 @@ export function ConfiguracionView() {
                 <div style={{ fontFamily:"var(--font-dm-sans)", fontSize:12, color:"var(--text-muted)", marginBottom:12, textTransform:"uppercase", letterSpacing:"0.5px", fontWeight:600 }}>Próximamente</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                   {[
-                    { icon:"💳", name:"Stripe / Conekta",  desc:"Acepta pagos en línea de tus pacientes.",              color:"#7B6EA8" },
-                    { icon:"💬", name:"WhatsApp Business", desc:"Envía recordatorios de citas y tests por WhatsApp.",    color:"#5C8A6E" },
-                  ].map((t,i) => (
+                    { icon:"💳", name:"Stripe / Conekta",  desc:"Acepta pagos en línea de tus pacientes.",           color:"#7B6EA8" },
+                    { icon:"💬", name:"WhatsApp Business", desc:"Envía recordatorios de citas y tests por WhatsApp.", color:"#5C8A6E" },
+                  ].map((t, i) => (
                     <div key={i} className="card" style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 18px", borderRadius:14, opacity:0.55 }}>
                       <div style={{ width:44, height:44, borderRadius:12, background:`${t.color}14`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>{t.icon}</div>
                       <div style={{ flex:1 }}>

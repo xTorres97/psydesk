@@ -20,6 +20,16 @@ function getFormattedDate() {
   });
 }
 
+// Mapeo de valores de la columna `sexo` → título visible
+function getTitulo(sexo: string | null | undefined): string {
+  switch (sexo) {
+    case "masculino": return "Dr.";
+    case "femenino":  return "Dra.";
+    case "psic":      return "Psic.";
+    default:          return "";
+  }
+}
+
 export function Topbar() {
   const { dark, toggle: toggleTheme } = useThemeStore();
   const { toggle: toggleSidebar }     = useSidebarStore();
@@ -35,14 +45,12 @@ export function Topbar() {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark, mounted]);
 
-  // Título según sexo
-  const titulo = profile?.sexo === "femenino" ? "Dra." : profile?.sexo === "masculino" ? "Dr." : "";
-
+  const titulo    = getTitulo((profile as any)?.sexo);
   const firstName = profile?.full_name?.split(" ")[0] ?? "";
 
-  // Nombre con título para el saludo
+  // Saludo: "Dra. Laura", "Psic. Carlos", o solo "Laura"
   const displayName = firstName
-    ? `${titulo} ${firstName}`.trim()
+    ? titulo ? `${titulo} ${firstName}` : firstName
     : "Doctor/a";
 
   const initials = profile?.full_name

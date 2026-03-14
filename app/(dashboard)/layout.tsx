@@ -3,6 +3,7 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { useSidebarStore } from "@/stores/useSidebarStore";
+import { useAutoLogout } from "@/hooks/useAutoLogout";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 
@@ -12,6 +13,9 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { collapsed, toggle } = useSidebarStore();
+
+  // 🔒 Auto-logout por inactividad — lee config desde Supabase
+  useAutoLogout();
 
   return (
     <div
