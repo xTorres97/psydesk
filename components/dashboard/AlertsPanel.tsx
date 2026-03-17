@@ -60,7 +60,7 @@ export function AlertsPanel({ alerts, progress, onNewPatient, onSendTest, onNewN
         ) : (
           alerts.map((a, i) => (
             <div key={i}
-              onClick={() => a.href && router.push(a.href)}
+              onClick={() => a.href && router.push("/dashboard/tests")}
               style={{
                 display: "flex", alignItems: "flex-start", gap: 10,
                 padding: "10px 12px", borderRadius: 10, marginBottom: 6,
