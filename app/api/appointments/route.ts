@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
+import { getSessionUser } from "@/lib/auth/session";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -212,8 +213,24 @@ async function sendAppointmentEmail(to: string, patientName: string, action: "cr
 // ─── POST — Crear cita ────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    const psychologistId = sessionUser.id;
+
     const body = await req.json();
-    const { psychologistId, patientId, patientName, patientEmail, start_time, end_time, modality, notes, type, title } = body;
+    const { patientId, patientName, start_time, end_time, modality, notes, type, title } = body;
+
+    // El paciente debe pertenecer al profesional; el email se toma de la BD
+    const { data: patientRow } = await supabase
+      .from("patients")
+      .select("id, email")
+      .eq("id", patientId)
+      .eq("psychologist_id", psychologistId)
+      .single();
+    if (!patientRow) {
+      return NextResponse.json({ error: "Paciente no encontrado" }, { status: 404 });
+    }
+    const patientEmail: string | null = sessionUser.isDemo ? null : patientRow.email;
 
     // 1. Guardar en Supabase
     const { data: appt, error } = await supabase.from("appointments").insert({
@@ -231,7 +248,7 @@ export async function POST(req: NextRequest) {
     if (error) throw error;
 
     // 2. Sync Google Calendar
-    const token = await getGoogleToken(psychologistId);
+    const token = sessionUser.isDemo ? null : await getGoogleToken(psychologistId);
     if (token) {
       const eventId = await createGoogleEvent(token, { ...appt, patientName, start_time, end_time });
       if (eventId) await supabase.from("appointments").update({ google_event_id: eventId }).eq("id", appt.id);
@@ -252,15 +269,29 @@ export async function POST(req: NextRequest) {
 // ─── PUT — Editar / Reagendar / Cancelar cita ─────────────────────────────────
 export async function PUT(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { id, psychologistId, patientName, patientEmail, start_time, end_time, modality, notes, type, title, status, cancel_reason } = body;
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    const psychologistId = sessionUser.id;
 
-    // 1. Obtener google_event_id actual
+    const body = await req.json();
+    const { id, patientName, start_time, end_time, modality, notes, type, title, status, cancel_reason } = body;
+
+    // 1. Obtener la cita (solo si pertenece al profesional)
     const { data: existing } = await supabase
       .from("appointments")
-      .select("google_event_id")
+      .select("google_event_id, patient_id")
       .eq("id", id)
+      .eq("psychologist_id", psychologistId)
       .single();
+    if (!existing) {
+      return NextResponse.json({ error: "Cita no encontrada" }, { status: 404 });
+    }
+
+    let patientEmail: string | null = null;
+    if (!sessionUser.isDemo && existing.patient_id) {
+      const { data: p } = await supabase.from("patients").select("email").eq("id", existing.patient_id).single();
+      patientEmail = p?.email ?? null;
+    }
 
     const googleEventId = existing?.google_event_id ?? null;
 
@@ -275,11 +306,11 @@ export async function PUT(req: NextRequest) {
     if (status !== undefined)        updateData.status        = status;
     if (cancel_reason !== undefined) updateData.cancel_reason = cancel_reason;
 
-    const { error } = await supabase.from("appointments").update(updateData).eq("id", id);
+    const { error } = await supabase.from("appointments").update(updateData).eq("id", id).eq("psychologist_id", psychologistId);
     if (error) throw error;
 
     // 3. Sync Google Calendar
-    const token = await getGoogleToken(psychologistId);
+    const token = sessionUser.isDemo ? null : await getGoogleToken(psychologistId);
     if (token && googleEventId) {
       if (status === "cancelada") {
         await markGoogleEventCancelled(token, googleEventId, patientName);

@@ -6,6 +6,7 @@ import { useSidebarStore } from "@/stores/useSidebarStore";
 import { useAutoLogout } from "@/hooks/useAutoLogout";
 import { AiFloatingButton } from "@/components/ai/AiPanel";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { DemoBanner } from "@/components/demo/DemoBanner";
 
 export default function DashboardLayout({
   children,
@@ -62,6 +63,7 @@ export default function DashboardLayout({
       </button>
 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <DemoBanner />
         <Topbar />
         <main
           className="flex-1 overflow-y-auto"

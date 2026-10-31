@@ -29,6 +29,8 @@ export async function middleware(request: NextRequest) {
   const publicRoutes = [
     "/login",
     "/register",
+    "/forgot-password",
+    "/api/demo/reset", // protegido con CRON_SECRET
     "/auth/callback",
     "/auth/confirm",
     "/cuestionario",
