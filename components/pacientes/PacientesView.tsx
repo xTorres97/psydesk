@@ -808,6 +808,17 @@ export function PacientesView() {
     setDeleteLoading(true);
     try {
       const supabase = createClient();
+      // 1) Archivos del almacenamiento (la cascada de la base solo borra las filas, no los archivos)
+      const { data: files } = await supabase.from("patient_files").select("storage_path").eq("patient_id", deleteTarget.id);
+      const paths = (files ?? []).map(f => f.storage_path).filter(Boolean);
+      if (paths.length) {
+        const { error: storageErr } = await supabase.storage.from("patient-files").remove(paths);
+        if (storageErr) throw storageErr;
+      }
+      // 2) Citas (la base solo las desvincula del paciente; se borran para no dejar notas huérfanas)
+      const { error: apptErr } = await supabase.from("appointments").delete().eq("patient_id", deleteTarget.id);
+      if (apptErr) throw apptErr;
+      // 3) El paciente: expediente, notas, historias y tests se borran en cascada
       const { error } = await supabase.from("patients").delete().eq("id", deleteTarget.id);
       if (error) throw error;
       setPatients(prev => prev.filter(p => p.id!==deleteTarget.id));

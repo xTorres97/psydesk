@@ -55,6 +55,7 @@ PsyDesk es una plataforma de gestión clínica para psicólogos: agenda, pacient
 - **API con identidad del servidor**: las rutas `/api/*` obtienen el usuario de la cookie de sesión (`lib/auth/session.ts`), nunca del body, y verifican que el paciente o la cita pertenezcan al profesional antes de leer o escribir con la service role.
 - **Cuestionarios por token**: el paciente responde sin cuenta, mediante un enlace único. La página nunca consulta la base directamente: `/api/cuestionario/[token]` devuelve solo ese test, valida las respuestas, calcula el puntaje en el servidor y acepta un único envío.
 - **Row Level Security**: cada profesional solo ve sus propias filas (`psychologist_id = auth.uid()`), y el rol anónimo no tiene acceso a ninguna tabla clínica.
+- **Privacidad**: la página pública [`/seguridad`](https://psydesk.vercel.app/seguridad) explica dónde están los datos, quién puede verlos, qué se comparte con servicios externos y cómo se borran.
 - **Modo demo**: una cuenta pública (`lib/demo.ts`) sin emails, sin integraciones externas y con límite de uso de la IA. `/api/demo/reset` la regenera cada noche con datos ficticios y fechas relativas a hoy, para que la agenda siempre se vea activa (`lib/demo-seed.ts`).
 
 ### Correr en local
@@ -104,6 +105,7 @@ PsyDesk is a practice-management platform for psychologists: scheduling, patient
 - **Server-side identity in the API**: `/api/*` routes read the user from the session cookie (`lib/auth/session.ts`), never from the request body, and check that the patient or appointment belongs to the clinician before using the service role.
 - **Token-based questionnaires**: patients answer without an account, through a unique link. The page never queries the database directly: `/api/cuestionario/[token]` returns only that test, validates the answers, scores them server-side and accepts a single submission.
 - **Row Level Security**: each clinician only sees their own rows (`psychologist_id = auth.uid()`), and the anonymous role has no access to any clinical table.
+- **Privacy**: the public page [`/seguridad`](https://psydesk.vercel.app/seguridad) (Spanish) explains where data lives, who can see it, what is shared with third parties and how it is deleted.
 - **Demo mode**: a public account (`lib/demo.ts`) with no outgoing email, no third-party integrations and a capped AI quota. `/api/demo/reset` rebuilds it nightly with fictional data and dates relative to today, so the schedule always looks active (`lib/demo-seed.ts`).
 
 ### Run locally

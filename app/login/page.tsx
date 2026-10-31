@@ -212,6 +212,9 @@ function LoginForm() {
           ¿No tienes cuenta?{" "}
           <a href="/register" style={{ color:"var(--accent)", textDecoration:"none", fontWeight:500 }}>Regístrate gratis</a>
         </p>
+        <p style={{ textAlign:"center", fontFamily:"var(--font-dm-sans)", fontSize:12, marginTop:10 }}>
+          <a href="/seguridad" style={{ color:"var(--text-muted)", textDecoration:"underline", textUnderlineOffset:3 }}>Cómo protegemos los datos clínicos</a>
+        </p>
       </div>
     </div>
   );
