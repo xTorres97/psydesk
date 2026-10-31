@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/context/AuthContext";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface PatientFile {
@@ -68,6 +69,7 @@ function getCategoryMeta(id: string) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 export function ExpedienteArchivosTab({ patientId, psychologistId, patientName }: Props) {
+  const { isDemo } = useAuth();
   const supabase = createClient();
 
   const [files, setFiles]             = useState<PatientFile[]>([]);
@@ -135,6 +137,7 @@ export function ExpedienteArchivosTab({ patientId, psychologistId, patientName }
   // ── Upload ───────────────────────────────────────────────────────────────
   async function handleUpload() {
     if (!pendingFile) return;
+    if (isDemo) { setUploadError("La subida de archivos está desactivada en la demo."); return; }
     setUploading(true);
     setUploadProgress(10);
     setUploadError("");

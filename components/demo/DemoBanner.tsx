@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 
 const REPO_URL = "https://github.com/xTorres97/psydesk";
@@ -13,11 +13,10 @@ const COPY = {
 /** Barra fina que avisa que se está usando la cuenta pública de demo. */
 export function DemoBanner() {
   const { isDemo } = useAuth();
-  const [lang, setLang] = useState<"es" | "en">("es");
-
-  useEffect(() => {
-    if (typeof navigator !== "undefined" && !navigator.language.toLowerCase().startsWith("es")) setLang("en");
-  }, []);
+  // Solo se muestra en el cliente (isDemo es false en el servidor), así que leer navigator aquí es seguro
+  const [lang] = useState<"es" | "en">(() =>
+    typeof navigator !== "undefined" && !navigator.language.toLowerCase().startsWith("es") ? "en" : "es"
+  );
 
   if (!isDemo) return null;
   const t = COPY[lang];
