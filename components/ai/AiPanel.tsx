@@ -49,34 +49,54 @@ function getTitulo(sexo: string | null | undefined): string {
 function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === "user";
 
+  // Negritas, cursivas y `código` dentro de una línea
+  const renderInline = (text: string, keyBase: string) =>
+    text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*)/g).filter(Boolean).map((p, j) => {
+      const k = `${keyBase}-${j}`;
+      if (p.startsWith("**") && p.endsWith("**") && p.length > 4) return <strong key={k}>{p.slice(2, -2)}</strong>;
+      if (p.startsWith("`") && p.endsWith("`") && p.length > 2) return <code key={k} style={{ fontSize:12, padding:"1px 4px", borderRadius:4, background:"var(--bg-primary)" }}>{p.slice(1, -1)}</code>;
+      if (p.startsWith("*") && p.endsWith("*") && p.length > 2) return <em key={k}>{p.slice(1, -1)}</em>;
+      return p;
+    });
+
   const renderMarkdown = (text: string) => {
     const lines = text.split("\n");
-    return lines.map((line, i) => {
-      if (line.startsWith("## "))  return <div key={i} style={{ fontFamily:"var(--font-lora)", fontSize:14, fontWeight:600, color:"var(--text-primary)", margin:"12px 0 6px" }}>{line.slice(3)}</div>;
-      if (line.startsWith("### ")) return <div key={i} style={{ fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:600, color:"var(--text-primary)", margin:"8px 0 4px" }}>{line.slice(4)}</div>;
-      if (line.startsWith("- ") || line.startsWith("* ")) return (
-        <div key={i} style={{ display:"flex", gap:6, margin:"2px 0" }}>
-          <span style={{ color:"var(--accent)", flexShrink:0 }}>·</span>
-          <span>{line.slice(2)}</span>
+    return lines.map((rawLine, i) => {
+      const line   = rawLine.trimEnd();
+      const trimmed = line.trimStart();
+      const indent = Math.min(3, Math.floor((line.length - trimmed.length) / 2));
+      const key = String(i);
+
+      if (trimmed === "") return <div key={i} style={{ height:6 }} />;
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) return <hr key={i} style={{ border:"none", borderTop:"1px solid var(--border-light)", margin:"8px 0" }} />;
+
+      const heading = trimmed.match(/^(#{1,4})\s+(.*)$/);
+      if (heading) {
+        const level = heading[1].length;
+        return (
+          <div key={i} style={{ fontFamily: level <= 2 ? "var(--font-lora)" : "var(--font-dm-sans)", fontSize: level <= 2 ? 14 : 13, fontWeight:600, color:"var(--text-primary)", margin: level <= 2 ? "12px 0 6px" : "8px 0 4px" }}>
+            {renderInline(heading[2].replace(/\*\*/g, ""), key)}
+          </div>
+        );
+      }
+
+      const bullet = trimmed.match(/^[-*•]\s+(.*)$/);
+      if (bullet) return (
+        <div key={i} style={{ display:"flex", gap:6, margin:"2px 0", paddingLeft: indent * 14 }}>
+          <span style={{ color:"var(--accent)", flexShrink:0 }}>{indent > 0 ? "◦" : "·"}</span>
+          <span>{renderInline(bullet[1], key)}</span>
         </div>
       );
-      if (/^\d+\.\s/.test(line)) return (
-        <div key={i} style={{ display:"flex", gap:6, margin:"2px 0" }}>
-          <span style={{ color:"var(--accent)", flexShrink:0, minWidth:16 }}>{line.match(/^\d+/)?.[0]}.</span>
-          <span>{line.replace(/^\d+\.\s/, "")}</span>
+
+      const numbered = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
+      if (numbered) return (
+        <div key={i} style={{ display:"flex", gap:6, margin:"6px 0 2px", paddingLeft: indent * 14 }}>
+          <span style={{ color:"var(--accent)", flexShrink:0, minWidth:16, fontWeight:600 }}>{numbered[1]}.</span>
+          <span>{renderInline(numbered[2], key)}</span>
         </div>
       );
-      if (line === "") return <div key={i} style={{ height:6 }} />;
-      const parts = line.split(/(\*\*[^*]+\*\*)/g);
-      return (
-        <div key={i} style={{ margin:"1px 0" }}>
-          {parts.map((p, j) =>
-            p.startsWith("**") && p.endsWith("**")
-              ? <strong key={j}>{p.slice(2,-2)}</strong>
-              : p
-          )}
-        </div>
-      );
+
+      return <div key={i} style={{ margin:"1px 0" }}>{renderInline(trimmed, key)}</div>;
     });
   };
 

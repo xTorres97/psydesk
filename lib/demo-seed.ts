@@ -41,7 +41,7 @@ const PATIENTS: DemoPatient[] = [
     referral_source: "Médico de familia", status: "activo", weekday: 1, hour: 9, modality: "presencial", weeksIn: 5,
     notes: "Prefiere sesiones en la mañana. Responde bien a tareas entre sesiones.",
     soap: {
-      s: ["Refiere preocupación constante por el trabajo y dificultad para desconectarse en la noche.", "Comenta que practicó la respiración diafragmática 4 de 7 días.", "Reporta una semana más tranquila; un episodio de ansiedad antes de una reunión.", "Dice sentirse con más control; identificó pensamientos catastróficos por sí misma."],
+      s: ["Refiere preocupación constante por el trabajo y dificultad para desconectarse en la noche.", "Comenta que practicó la respiración diafragmática 4 de 7 días.", "Reporta una semana más tranquila; un episodio de ansiedad antes de una reunión.", "Dice sentirse con más control; identificó pensamientos catastróficos por sí misma.", "Cuenta que presentó en la reunión de equipo con ansiedad manejable (4/10).", "Refiere que retomó yoga los sábados y que duerme mejor."],
       o: ["Inquietud motora leve, habla acelerada al inicio.", "Contacto visual adecuado, afecto congruente.", "Más relajada que en sesiones previas, postura abierta."],
       a: ["Síntomas compatibles con ansiedad generalizada de intensidad moderada.", "Buena adherencia a las técnicas. Disminución de la rumiación nocturna.", "Progreso sostenido; GAD-7 en descenso."],
       p: ["Psicoeducación sobre ansiedad y registro de preocupaciones.", "Continuar respiración y empezar reestructuración cognitiva.", "Exposición gradual a reuniones; revisar registro la próxima sesión."],
@@ -53,7 +53,7 @@ const PATIENTS: DemoPatient[] = [
     referral_source: "Búsqueda en internet", status: "activo", weekday: 2, hour: 18, modality: "videollamada", weeksIn: 4,
     notes: "Sesiones online por horario laboral.",
     soap: {
-      s: ["Refiere jornadas de 11 horas y cansancio al despertar.", "Logró cerrar la laptop a las 7 p. m. tres días de la semana.", "Discusión con su jefe; se sintió sobrepasado pero no se aisló."],
+      s: ["Refiere jornadas de 11 horas y cansancio al despertar.", "Logró cerrar la laptop a las 7 p. m. tres días de la semana.", "Discusión con su jefe; se sintió sobrepasado pero no se aisló.", "Delegó dos tareas a su equipo por primera vez; reporta alivio.", "Tomó un día libre sin revisar el correo."],
       o: ["Se conecta puntual, se le ve cansado.", "Discurso organizado, afecto algo aplanado.", "Más animado; sonríe al contar sus logros."],
       a: ["Estrés laboral sostenido con impacto en el sueño.", "Mejora en límites horarios; persiste dificultad para delegar."],
       p: ["Registro de actividades y pausas activas.", "Trabajar asertividad: ensayar conversación con su jefe.", "Aplicar PSS-10 para medir avance."],
@@ -65,7 +65,7 @@ const PATIENTS: DemoPatient[] = [
     referral_source: "Servicio de orientación universitaria", status: "activo", weekday: 3, hour: 10, modality: "presencial", weeksIn: 6,
     notes: "Acordado contacto con orientación de la universidad si falta a dos sesiones seguidas.",
     soap: {
-      s: ["Refiere desgano y poca motivación para ir a clases.", "Retomó una actividad que disfruta (dibujo) dos veces esta semana.", "Comenta que salió con amigas el fin de semana y la pasó bien.", "Refiere mejor ánimo, aunque le preocupan las entregas finales."],
+      s: ["Refiere desgano y poca motivación para ir a clases.", "Retomó una actividad que disfruta (dibujo) dos veces esta semana.", "Comenta que salió con amigas el fin de semana y la pasó bien.", "Refiere mejor ánimo, aunque le preocupan las entregas finales.", "Entregó un proyecto a tiempo y lo vivió como un logro.", "Se inscribió en un taller de ilustración los sábados."],
       o: ["Afecto triste, latencia de respuesta aumentada.", "Mejor arreglo personal, más reactiva en la conversación.", "Afecto eutímico la mayor parte de la sesión."],
       a: ["Sintomatología depresiva leve; PHQ-9 = 9.", "Respuesta favorable a la activación conductual.", "Mejoría clínica; PHQ-9 en descenso."],
       p: ["Activación conductual: agenda semanal de actividades placenteras.", "Mantener actividades y trabajar autocrítica.", "Plan de estudio por bloques para las entregas."],
@@ -77,7 +77,7 @@ const PATIENTS: DemoPatient[] = [
     referral_source: "Recomendación de un familiar", status: "activo", weekday: 4, hour: 15, modality: "presencial", weeksIn: 3,
     notes: "Duelo por fallecimiento de su padre hace 4 meses.",
     soap: {
-      s: ["Habla de su padre con mucha emoción; dice que no ha podido ordenar sus cosas.", "Visitó la casa familiar y guardó algunas pertenencias.", "Refiere días buenos y días difíciles, pero menos culpa."],
+      s: ["Habla de su padre con mucha emoción; dice que no ha podido ordenar sus cosas.", "Visitó la casa familiar y guardó algunas pertenencias.", "Refiere días buenos y días difíciles, pero menos culpa.", "Compartió fotos de su padre con su hermana y pudieron recordarlo juntos."],
       o: ["Llanto durante la sesión, se calma con contención.", "Afecto triste pero modulado."],
       a: ["Duelo dentro de lo esperado, sin criterios de duelo complicado.", "Avanza en la aceptación de la pérdida."],
       p: ["Validación emocional y escritura de una carta a su padre.", "Continuar trabajo con recuerdos significativos."],
@@ -89,7 +89,7 @@ const PATIENTS: DemoPatient[] = [
     referral_source: "Colega del hospital", status: "activo", weekday: 5, hour: 11, modality: "videollamada", weeksIn: 4,
     notes: "Ajustar horario según su turno.",
     soap: {
-      s: ["Refiere tardar más de una hora en dormirse después de los turnos nocturnos.", "Empezó a usar el diario de sueño.", "Dice que dejó el teléfono fuera de la habitación y nota diferencia."],
+      s: ["Refiere tardar más de una hora en dormirse después de los turnos nocturnos.", "Empezó a usar el diario de sueño.", "Dice que dejó el teléfono fuera de la habitación y nota diferencia.", "Logró dormir 6 horas seguidas después de un turno nocturno.", "Refiere menos ansiedad al acostarse; ya no mira el reloj."],
       o: ["Ojeras marcadas, bostezos frecuentes.", "Más despierta y participativa."],
       a: ["Insomnio de conciliación asociado a turnos rotativos; ISI moderado.", "Buena adherencia a higiene del sueño."],
       p: ["Higiene del sueño y diario de sueño.", "Control de estímulos y restricción de tiempo en cama."],
@@ -101,7 +101,7 @@ const PATIENTS: DemoPatient[] = [
     referral_source: "Orientadora del colegio", status: "activo", weekday: 3, hour: 16, modality: "presencial", weeksIn: 3,
     notes: "Asiste acompañada por su madre. Consentimiento informado firmado por representante.",
     soap: {
-      s: ["Refiere dolor de estómago antes de las exposiciones en clase.", "Hizo una exposición corta frente a su grupo de amigas.", "Dice que se sintió nerviosa pero pudo terminar la evaluación oral."],
+      s: ["Refiere dolor de estómago antes de las exposiciones en clase.", "Hizo una exposición corta frente a su grupo de amigas.", "Dice que se sintió nerviosa pero pudo terminar la evaluación oral.", "Levantó la mano dos veces en clase de Historia."],
       o: ["Tímida al inicio, se va soltando con actividades lúdicas.", "Más conversadora, buen vínculo terapéutico."],
       a: ["Ansiedad de desempeño en contexto escolar.", "Avances en exposición gradual."],
       p: ["Psicoeducación con la madre; técnica de respiración con globo.", "Jerarquía de exposición: leer en voz alta en clase."],
@@ -113,7 +113,7 @@ const PATIENTS: DemoPatient[] = [
     referral_source: "Instagram", status: "activo", weekday: 1, hour: 17, modality: "telefono", weeksIn: 2,
     notes: "Evalúa proponer terapia de pareja.",
     soap: {
-      s: ["Refiere discusiones frecuentes con su pareja por la distribución de gastos.", "Probó la técnica de tiempo fuera en una discusión."],
+      s: ["Refiere discusiones frecuentes con su pareja por la distribución de gastos.", "Probó la técnica de tiempo fuera en una discusión.", "Hablaron del presupuesto del mes sin discutir."],
       o: ["Discurso fluido, algo defensivo al inicio."],
       a: ["Patrón de comunicación reactiva en la relación."],
       p: ["Trabajar comunicación no violenta y escucha activa."],
@@ -279,12 +279,14 @@ export async function seedDemo(admin: SupabaseClient, now = new Date()): Promise
     if (!p.soap) continue;
     const list = (completedBy[idOf(p.key)] ?? []).sort((a, b) => a.start.localeCompare(b.start));
     list.forEach((appt, i) => {
+      // Subjetivo: una frase por sesión. O/A/P avanzan por etapas (inicio → medio → cierre)
       const pick = (arr: string[]) => arr[Math.min(i, arr.length - 1)];
+      const stage = (arr: string[]) => arr[Math.min(arr.length - 1, Math.floor((i / Math.max(1, list.length - 1)) * (arr.length - 1) + 0.5))];
       const isLast = i === list.length - 1;
       notes.push({
         psychologist_id: uid, patient_id: idOf(p.key), appointment_id: appt.id,
         session_date: isoDate(new Date(appt.start)), session_number: i + 1,
-        subjective: pick(p.soap!.s), objective: pick(p.soap!.o), assessment: pick(p.soap!.a), plan: pick(p.soap!.p),
+        subjective: pick(p.soap!.s), objective: stage(p.soap!.o), assessment: stage(p.soap!.a), plan: stage(p.soap!.p),
         mood_rating: Math.min(9, 4 + i), next_session: isoDate(new Date(new Date(appt.start).getTime() + 7 * DAY)),
         // La última nota de Carlos queda como borrador → aparece como "nota pendiente"
         is_draft: isLast && p.key === "carlos",
