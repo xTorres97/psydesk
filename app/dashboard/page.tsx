@@ -93,7 +93,8 @@ export default function DashboardPage() {
       supabase.from("test_submissions")
         .select("id, test_id, test_short_name, score, max_score, level, completed_at, patient_id, patient:patients(first_name, last_name)")
         .eq("psychologist_id", user.id)
-        .eq("status", "completed")
+        // Los tests revisados también cuentan para la evolución
+        .in("status", ["completed", "reviewed"])
         .order("completed_at", { ascending: false }),
 
       // Notas de sesión de ayer sin completar (sesiones que pasaron sin nota)
