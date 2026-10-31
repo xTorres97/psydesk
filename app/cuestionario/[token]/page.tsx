@@ -2,25 +2,12 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
-import { createClient } from "@supabase/supabase-js";
-import { TESTS_DATA, calcScore, getMaxScore } from "@/components/tests/tests-data";
 import type { CustomQuestion } from "@/components/tests/CustomTestBuilder";
-
-const supabasePublic = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 type PageState = "loading" | "ready" | "answering" | "submitting" | "done" | "expired" | "error";
 type TestSource = "predefined" | "custom";
 
 interface SubmissionInfo {
-  id: string;
-  test_id?: string;          // predefinido
-  custom_test_id?: string;   // personalizado
-  test_short_name: string;
-  status: string;
-  token: string;
   source: TestSource;
   questions: CustomQuestion[];
   name: string;
@@ -37,49 +24,16 @@ export default function TestPublicPage({ params }: { params: Promise<{ token: st
   useEffect(() => {
     async function load() {
       if (!token) { setPageState("error"); return; }
-
-      // Buscar primero en predefinidos
-      const { data: predefined } = await supabasePublic
-        .from("test_submissions")
-        .select("id, test_id, test_short_name, status, token")
-        .eq("token", token)
-        .single();
-
-      if (predefined) {
-        if (predefined.status === "completed" || predefined.status === "reviewed") { setPageState("expired"); return; }
-        const testDef = TESTS_DATA.find(t => t.id === predefined.test_id);
-        if (!testDef) { setPageState("error"); return; }
-        // Convertir preguntas predefinidas al formato CustomQuestion
-        const questions: CustomQuestion[] = testDef.questions.map(q => ({
-          id: q.id, text: q.text, type: "radio" as const,
-          options: q.options.map(o => ({ label: o.label, value: o.value })),
-        }));
-        setInfo({ id: predefined.id, test_id: predefined.test_id, test_short_name: predefined.test_short_name, status: predefined.status, token: predefined.token, source: "predefined", questions, name: testDef.name });
+      try {
+        const res = await fetch(`/api/cuestionario/${encodeURIComponent(token)}`);
+        if (res.status === 410) { setPageState("expired"); return; }
+        if (!res.ok) { setPageState("error"); return; }
+        const data = await res.json();
+        setInfo({ source: data.source, name: data.name, questions: data.questions as CustomQuestion[] });
         setPageState("ready");
-        return;
+      } catch {
+        setPageState("error");
       }
-
-      // Buscar en tests personalizados
-      const { data: custom } = await supabasePublic
-        .from("custom_test_submissions")
-        .select("id, custom_test_id, test_short_name, status, token")
-        .eq("token", token)
-        .single();
-
-      if (!custom) { setPageState("error"); return; }
-      if (custom.status === "completed" || custom.status === "reviewed") { setPageState("expired"); return; }
-
-      // Obtener definición del test personalizado
-      const { data: testDef } = await supabasePublic
-        .from("custom_tests")
-        .select("name, questions")
-        .eq("id", custom.custom_test_id)
-        .single();
-
-      if (!testDef) { setPageState("error"); return; }
-
-      setInfo({ id: custom.id, custom_test_id: custom.custom_test_id, test_short_name: custom.test_short_name, status: custom.status, token: custom.token, source: "custom", questions: testDef.questions as CustomQuestion[], name: testDef.name });
-      setPageState("ready");
     }
     load();
   }, [token]);
@@ -92,25 +46,23 @@ export default function TestPublicPage({ params }: { params: Promise<{ token: st
   async function handleSubmit() {
     if (!info) return;
     setPageState("submitting");
+    setError("");
 
     try {
-      if (info.source === "predefined") {
-        const { score, level } = calcScore(info.test_id!, answers as Record<number, number>);
-        const maxScore = getMaxScore(info.test_id!);
-        const { error } = await supabasePublic.from("test_submissions").update({
-          status: "completed", answers, score, max_score: maxScore, level, completed_at: new Date().toISOString(),
-        }).eq("token", token);
-        if (error) throw error;
-      } else {
-        // Tests personalizados: no calculamos score automático
-        const { error } = await supabasePublic.from("custom_test_submissions").update({
-          status: "completed", answers, completed_at: new Date().toISOString(),
-        }).eq("token", token);
-        if (error) throw error;
+      // El puntaje se calcula en el servidor
+      const res = await fetch(`/api/cuestionario/${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers }),
+      });
+      if (res.status === 410) { setPageState("expired"); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error);
       }
       setPageState("done");
-    } catch (e: any) {
-      setError("Error al enviar. Por favor intenta de nuevo.");
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : "Error al enviar. Por favor intenta de nuevo.");
       setPageState("answering");
     }
   }
