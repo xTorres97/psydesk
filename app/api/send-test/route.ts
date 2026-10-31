@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import crypto from "crypto";
+import { getSessionUser } from "@/lib/auth/session";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,15 +13,30 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(req: NextRequest) {
   try {
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    const psychologistId = sessionUser.id;
+
     const body = await req.json();
     const {
-      patientId, patientEmail, patientName,
-      psychologistId,
+      patientId, patientName,
       // Test predefinido
       testId, testShortName,
       // Test personalizado
       customTestId, customTestShortName,
     } = body;
+
+    // El paciente debe pertenecer al profesional; el email se toma de la BD
+    const { data: patientRow } = await supabase
+      .from("patients")
+      .select("id, email")
+      .eq("id", patientId)
+      .eq("psychologist_id", psychologistId)
+      .single();
+    if (!patientRow) {
+      return NextResponse.json({ error: "Paciente no encontrado" }, { status: 404 });
+    }
+    const patientEmail: string | null = patientRow.email;
 
     const isCustom = !!customTestId;
     const token    = crypto.randomUUID();
@@ -49,6 +65,11 @@ export async function POST(req: NextRequest) {
         status:          "sent",
       });
       if (error) throw error;
+    }
+
+    // En la demo no se envían emails: se devuelve el link para abrirlo directo
+    if (sessionUser.isDemo || !patientEmail) {
+      return NextResponse.json({ success: true, token, link, demo: sessionUser.isDemo });
     }
 
     // ── Email al paciente ─────────────────────────────────────────────────
@@ -91,7 +112,7 @@ export async function POST(req: NextRequest) {
       `,
     });
 
-    return NextResponse.json({ success: true, token });
+    return NextResponse.json({ success: true, token, link });
   } catch (e: any) {
     console.error("send-test error:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });

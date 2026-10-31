@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { DEMO_EMAIL, DEMO_PASSWORD, DEMO_ENABLED } from "@/lib/demo";
 
 const REMEMBER_KEY = "psydesk_remembered_email";
 
@@ -55,6 +56,25 @@ function LoginForm() {
       router.refresh();
     }
   };
+
+  // Entrar con la cuenta pública de demo (datos ficticios)
+  const handleDemo = async () => {
+    setLoading(true); setError("");
+    const { error } = await supabase.auth.signInWithPassword({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
+    if (error) {
+      setError("La demo no está disponible en este momento. Intenta más tarde.");
+      setLoading(false);
+      return;
+    }
+    router.push("/dashboard");
+    router.refresh();
+  };
+
+  // /login?demo=1 entra directo a la demo (link desde el portafolio)
+  useEffect(() => {
+    if (DEMO_ENABLED && searchParams.get("demo") === "1") handleDemo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleGoogle = async () => {
     setLoading(true); setError("");
@@ -178,6 +198,13 @@ function LoginForm() {
             style={{ width:"100%", padding:"11px", borderRadius:12, background:"var(--accent)", color:"#faf7f2", border:"none", cursor:loading?"not-allowed":"pointer", fontFamily:"var(--font-dm-sans)", fontSize:14, fontWeight:500, opacity:loading?0.7:1, transition:"opacity .15s", boxShadow:"0 2px 8px rgba(139,115,85,.3)" }}>
             {loading ? "Entrando..." : "Iniciar sesión"}
           </button>
+
+          {DEMO_ENABLED && (
+            <button onClick={handleDemo} disabled={loading}
+              style={{ width:"100%", marginTop:10, padding:"10px", borderRadius:12, background:"transparent", color:"var(--accent)", border:"1px dashed var(--accent)", cursor:loading?"not-allowed":"pointer", fontFamily:"var(--font-dm-sans)", fontSize:13, fontWeight:500, opacity:loading?0.7:1, transition:"opacity .15s" }}>
+              Probar la demo sin registrarse
+            </button>
+          )}
         </div>
 
         {/* Footer */}

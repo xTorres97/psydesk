@@ -235,7 +235,7 @@ export function ConfiguracionView() {
     saveToSupabase,
   } = usePreferences();
 
-  const { profile, refreshProfile } = useAuth();
+  const { profile, refreshProfile, isDemo } = useAuth();
   const supabase     = createClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchParams = useSearchParams();
@@ -425,6 +425,7 @@ export function ConfiguracionView() {
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !profile?.id) return;
+    if (isDemo) { e.target.value = ""; showToast("No disponible en la demo.", false); return; }
     e.target.value = "";
     setUploadingAvatar(true);
     try {
@@ -453,6 +454,7 @@ export function ConfiguracionView() {
 
   const handleSelectHistoryAvatar = async (url: string) => {
     if (!profile?.id) return;
+    if (isDemo) { showToast("No disponible en la demo.", false); return; }
     setUploadingAvatar(true);
     const newHistory = [...(profile.avatar_url ? [profile.avatar_url] : []), ...avatarHistory.filter(u => u !== url)].slice(0, MAX_AVATAR_HISTORY);
     await supabase.from("profiles").update({ avatar_url: url, avatar_history: newHistory }).eq("id", profile.id);
@@ -464,6 +466,7 @@ export function ConfiguracionView() {
   };
 
   const handleChangePassword = async () => {
+    if (isDemo) { showToast("La contraseña de la cuenta demo no se puede cambiar.", false); return; }
     if (!newPass || !confirmPass) { showToast("Completa todos los campos.", false); return; }
     if (newPass.length < 8)       { showToast("Mínimo 8 caracteres.", false); return; }
     if (newPass !== confirmPass)  { showToast("Las contraseñas no coinciden.", false); return; }
@@ -476,6 +479,7 @@ export function ConfiguracionView() {
 
   const handleConnectGoogle = async (key: IntegKey) => {
     if (!profile?.id) return;
+    if (isDemo) { showToast("Las integraciones con Google no están disponibles en la demo.", false); return; }
     setIntegLoading(p => ({ ...p, [key]: true }));
     const scopes      = encodeURIComponent(GOOGLE_SCOPES[key]);
     const redirectUri = encodeURIComponent(`${window.location.origin}/auth/callback/google`);

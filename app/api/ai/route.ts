@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
+import { getSessionUser } from "@/lib/auth/session";
+import { DEMO_AI_MAX_MESSAGES } from "@/lib/demo";
 
 const genAI   = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const supabase = createClient(
@@ -25,7 +27,18 @@ function getTitulo(sexo: string | null | undefined): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, psychologistId } = await req.json();
+    const sessionUser = await getSessionUser();
+    if (!sessionUser) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    // El id sale de la sesión, nunca del body
+    const psychologistId = sessionUser.id;
+    const { messages } = await req.json();
+
+    if (sessionUser.isDemo && Array.isArray(messages) && messages.length > DEMO_AI_MAX_MESSAGES) {
+      return NextResponse.json(
+        { error: "En la demo la conversación con el asistente tiene un límite de mensajes. Inicia una nueva conversación." },
+        { status: 429 }
+      );
+    }
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: "messages requerido" }, { status: 400 });

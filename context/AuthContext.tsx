@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
+import { isDemoEmail } from "@/lib/demo";
 
 interface Profile {
   id: string;
@@ -21,6 +22,8 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
+  /** true si la sesión es la cuenta pública de demo */
+  isDemo: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -28,6 +31,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null, session: null, profile: null,
   loading: true,
+  isDemo: false,
   signOut: async () => {},
   refreshProfile: async () => {},
 });
@@ -84,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, session, profile, loading, isDemo: isDemoEmail(user?.email), signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
