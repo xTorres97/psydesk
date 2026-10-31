@@ -37,6 +37,7 @@ export async function middleware(request: NextRequest) {
     "/cuestionario",
     "/feedback",
     "/admin/feedback",
+    "/seguridad",
   ];
   const isPublic = publicRoutes.some(r => pathname.startsWith(r));
 
