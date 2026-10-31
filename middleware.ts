@@ -31,6 +31,7 @@ export async function middleware(request: NextRequest) {
     "/register",
     "/forgot-password",
     "/api/demo/reset", // protegido con CRON_SECRET
+    "/api/cuestionario", // acceso solo por token, validado en la ruta
     "/auth/callback",
     "/auth/confirm",
     "/cuestionario",
